@@ -1,0 +1,471 @@
+# Local changes in editor/ (chocoford/excalidraw, branch ExcalidrawZ-core, base b4c2a73a62e00b488d897ef5adba5eca7d34b7dc)
+# Apply with: cd editor && git checkout b4c2a73a && git apply editor-local-changes.patch
+diff --git a/README.md b/README.md
+index 401c604d..5d59ba01 100644
+--- a/README.md
++++ b/README.md
+@@ -291,3 +291,15 @@ Uses browser native PDF rendering with **zero external dependencies**.
+ - Use `yarn preview:cloudflare` for a local built-assets preview and `yarn deploy:cloudflare` for a local build and deployment.
+ - For Cloudflare Git Builds, use repository root `/`, Node.js 20, build command `yarn build`, and deploy command `yarn wrangler deploy --config wrangler.jsonc`. Set the production branch to `ExcalidrawZ-core`; the repository default `master` branch does not contain ExcalidrawZ's deployment configuration.
+ - Before switching domains, allow the Cloudflare preview/custom domain in Firebase and external backend/WebSocket origin policies. Keeping the existing custom domain avoids Native host URL changes.
++
++## Local desktop fork
++
++- `packages/excalidraw/components/LayerUI.tsx:235` restores the web menu, toolbar, and library trigger.
++- `packages/common/src/editorInterface.ts:142` keeps desktop windows in the full property-panel layout above the phone breakpoint.
++- `excalidraw-app/excalidrawZ/camera.js:275` samples native camera updates while retaining the final value.
++- `excalidraw-app/excalidrawZ/message.js:47` avoids duplicate console bridge messages.
++- `excalidraw-app/App.tsx:398` disables cloud collaboration for the bundled local editor.
++- `excalidraw-app/excalidrawZ/camera.test.js:1` and `desktopControls.test.ts:1` cover sampling and desktop breakpoints.
++
++Build via the host repository's `script/build_release.sh`. The host records this
++editor's base revision plus `patches/editor.patch`; generated assets are not source.
+diff --git a/excalidraw-app/App.tsx b/excalidraw-app/App.tsx
+index 3f0f1650..d9a27ab0 100644
+--- a/excalidraw-app/App.tsx
++++ b/excalidraw-app/App.tsx
+@@ -395,7 +395,7 @@ const ExcalidrawWrapper = () => {
+   const excalidrawAPI = useExcalidrawAPI();
+ 
+   const [errorMessage, setErrorMessage] = useState("");
+-  const isCollabDisabled = isRunningInIframe();
++  const isCollabDisabled = true; // Local desktop build has no collaboration backend.
+ 
+   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
+ 
+@@ -1056,7 +1056,7 @@ const ExcalidrawWrapper = () => {
+       (window as any).excalidrawZHelper._computeSearchMatches = computeSearchMatches;
+       (window as any).excalidrawZHelper.startWatchExcalidrawState?.();
+       (window as any).excalidrawZHelper.startCameraTracking?.();
+-      (window as any).excalidrawZHelper.startElementsTracking?.();
++      // Native ignores onElementsChanged; document dirty tracking is separate.
+       (window as any).excalidrawZHelper.startCanvasPreferencesTracking?.();
+       // All bridges + trackers ready — now safe to tell the host the
+       // helper is fully initialized.
+@@ -1313,6 +1313,7 @@ const ExcalidrawWrapper = () => {
+       })}
+     >
+       <Excalidraw
++        aiEnabled={false}
+         viewportStatusFrame={viewportStatusFrame}
+         userToFollow={userToFollow}
+         onChange={onChange}
+@@ -1323,33 +1324,7 @@ const ExcalidrawWrapper = () => {
+         UIOptions={{
+           canvasActions: {
+             toggleTheme: true,
+-            export: {
+-              onExportToBackend,
+-              renderCustomUI: excalidrawAPI
+-                ? (elements, appState, files) => {
+-                    return (
+-                      <ExportToExcalidrawPlus
+-                        elements={elements}
+-                        appState={appState}
+-                        files={files}
+-                        name={excalidrawAPI.getName()}
+-                        onError={(error) => {
+-                          excalidrawAPI?.updateScene({
+-                            appState: {
+-                              errorMessage: error.message,
+-                            },
+-                          });
+-                        }}
+-                        onSuccess={() => {
+-                          excalidrawAPI.updateScene({
+-                            appState: { openDialog: null },
+-                          });
+-                        }}
+-                      />
+-                    );
+-                  }
+-                : undefined,
+-            },
++            export: {},
+           },
+         }}
+         langCode={langCode}
+@@ -1409,27 +1384,10 @@ const ExcalidrawWrapper = () => {
+         <OverwriteConfirmDialog>
+           <OverwriteConfirmDialog.Actions.ExportToImage />
+           <OverwriteConfirmDialog.Actions.SaveToDisk />
+-          {excalidrawAPI && (
+-            <OverwriteConfirmDialog.Action
+-              title={t("overwriteConfirm.action.excalidrawPlus.title")}
+-              actionLabel={t("overwriteConfirm.action.excalidrawPlus.button")}
+-              onClick={() => {
+-                exportToExcalidrawPlus(
+-                  excalidrawAPI.getSceneElements(),
+-                  excalidrawAPI.getAppState(),
+-                  excalidrawAPI.getFiles(),
+-                  excalidrawAPI.getName(),
+-                );
+-              }}
+-            >
+-              {t("overwriteConfirm.action.excalidrawPlus.description")}
+-            </OverwriteConfirmDialog.Action>
+-          )}
++
+         </OverwriteConfirmDialog>
+         <AppFooter onChange={() => excalidrawAPI?.refresh()} />
+-        {excalidrawAPI && <AIComponents excalidrawAPI={excalidrawAPI} />}
+ 
+-        <TTDDialogTrigger />
+         {isCollaborating && isOffline && (
+           <div className="alertalert--warning">
+             {t("alerts.collabOfflineWarning")}
+@@ -1614,32 +1572,6 @@ const ExcalidrawWrapper = () => {
+                 );
+               },
+             },
+-            ...(isExcalidrawPlusSignedUser
+-              ? [
+-                  {
+-                    ...ExcalidrawPlusAppCommand,
+-                    label: "Sign in / Go to Excalidraw+",
+-                  },
+-                ]
+-              : [ExcalidrawPlusCommand, ExcalidrawPlusAppCommand]),
+-
+-            {
+-              label: t("overwriteConfirm.action.excalidrawPlus.button"),
+-              category: DEFAULT_CATEGORIES.export,
+-              icon: exportToPlus,
+-              predicate: true,
+-              keywords: ["plus", "export", "save", "backup"],
+-              perform: () => {
+-                if (excalidrawAPI) {
+-                  exportToExcalidrawPlus(
+-                    excalidrawAPI.getSceneElements(),
+-                    excalidrawAPI.getAppState(),
+-                    excalidrawAPI.getFiles(),
+-                    excalidrawAPI.getName(),
+-                  );
+-                }
+-              },
+-            },
+             {
+               label: t("labels.installPWA"),
+               category: DEFAULT_CATEGORIES.app,
+@@ -1670,12 +1602,6 @@ const ExcalidrawWrapper = () => {
+ };
+ 
+ const ExcalidrawApp = () => {
+-  const isCloudExportWindow =
+-    window.location.pathname === "/excalidraw-plus-export";
+-  if (isCloudExportWindow) {
+-    return <ExcalidrawPlusIframeExport />;
+-  }
+-
+   return (
+     <TopErrorBoundary>
+       <Provider store={appJotaiStore}>
+diff --git a/excalidraw-app/components/AppMainMenu.tsx b/excalidraw-app/components/AppMainMenu.tsx
+index 8bfae2d5..bbb4d4a3 100644
+--- a/excalidraw-app/components/AppMainMenu.tsx
++++ b/excalidraw-app/components/AppMainMenu.tsx
+@@ -41,25 +41,6 @@ export const AppMainMenu: React.FC<{
+       <MainMenu.DefaultItems.Help />
+       <MainMenu.DefaultItems.ClearCanvas />
+       <MainMenu.Separator />
+-      <MainMenu.ItemLink
+-        icon={ExcalLogo}
+-        href={`${
+-          import.meta.env.VITE_APP_PLUS_LP
+-        }/plus?utm_source=excalidraw&utm_medium=app&utm_content=hamburger`}
+-        className=""
+-      >
+-        Excalidraw+
+-      </MainMenu.ItemLink>
+-      <MainMenu.DefaultItems.Socials />
+-      <MainMenu.ItemLink
+-        icon={loginIcon}
+-        href={`${import.meta.env.VITE_APP_PLUS_APP}${
+-          isExcalidrawPlusSignedUser ? "" : "/sign-up"
+-        }?utm_source=signin&utm_medium=app&utm_content=hamburger`}
+-        className="highlighted"
+-      >
+-        {isExcalidrawPlusSignedUser ? t("labels.signIn") : t("labels.signUp")}
+-      </MainMenu.ItemLink>
+       {isDevEnv() && (
+         <MainMenu.Item
+           icon={eyeIcon}
+diff --git a/excalidraw-app/excalidrawZ/camera.js b/excalidraw-app/excalidrawZ/camera.js
+index 30b19dd3..ed78bf22 100644
+--- a/excalidraw-app/excalidrawZ/camera.js
++++ b/excalidraw-app/excalidrawZ/camera.js
+@@ -282,25 +282,36 @@ export const onCameraChange = (callback) => {
+  * Should be called once after excalidrawAPI is ready.
+  * Deduplicates consecutive equal values to avoid spam from unrelated re-renders.
+  */
++let stopCameraTracking = null;
++
+ export const startCameraTracking = () => {
++  stopCameraTracking?.();
+   const api = getAPI();
+   if (!api) {
+     return;
+   }
+-  let lastX = null;
+-  let lastY = null;
+-  let lastZoom = null;
+-  api.onScrollChange((scrollX, scrollY, zoom) => {
+-    const z = zoom.value;
+-    if (scrollX === lastX && scrollY === lastY && z === lastZoom) {
+-      return;
+-    }
+-    lastX = scrollX;
+-    lastY = scrollY;
+-    lastZoom = z;
+-    sendMessage({
+-      event: "onCameraChanged",
+-      data: { scrollX, scrollY, zoom: z },
+-    });
++  let last = null;
++  let pending = null;
++  let timer = null;
++  const flush = () => {
++    timer = null;
++    if (!pending) return;
++    const camera = pending;
++    pending = null;
++    if (last && camera.scrollX === last.scrollX &&
++        camera.scrollY === last.scrollY && camera.zoom === last.zoom) return;
++    last = camera;
++    sendMessage({ event: "onCameraChanged", data: camera });
++  };
++  const unsubscribe = api.onScrollChange((scrollX, scrollY, zoom) => {
++    pending = { scrollX, scrollY, zoom: zoom.value };
++    // Native only needs a recent fallback; explicit getCamera reads stay exact.
++    if (timer === null) timer = setTimeout(flush, 100);
+   });
++  stopCameraTracking = () => {
++    if (timer !== null) clearTimeout(timer);
++    pending = null;
++    unsubscribe?.();
++  };
++  return stopCameraTracking;
+ };
+diff --git a/excalidraw-app/excalidrawZ/camera.test.js b/excalidraw-app/excalidrawZ/camera.test.js
+new file mode 100644
+index 00000000..bc5b2da9
+--- /dev/null
++++ b/excalidraw-app/excalidrawZ/camera.test.js
+@@ -0,0 +1,44 @@
++import { startCameraTracking } from "./camera";
++
++describe("native camera sampling", () => {
++  let callback;
++  let stop;
++  let postMessage;
++  beforeEach(() => {
++    vi.useFakeTimers();
++    postMessage = vi.fn();
++    window.webkit = { messageHandlers: { excalidrawZ: { postMessage } } };
++    window.excalidrawZHelper = { _api: { onScrollChange: vi.fn((cb) => {
++      callback = cb;
++      return vi.fn();
++    }) } };
++    stop = startCameraTracking();
++  });
++  afterEach(() => {
++    stop();
++    vi.useRealTimers();
++    delete window.webkit;
++    delete window.excalidrawZHelper;
++  });
++  it("coalesces rapid updates and delivers the final camera", () => {
++    for (let i = 0; i < 120; i++) {
++      callback(i, i * 2, { value: 1.5 });
++      vi.advanceTimersByTime(8);
++    }
++    vi.advanceTimersByTime(100);
++    expect(postMessage.mock.calls.length).toBeLessThanOrEqual(10);
++    expect(postMessage).toHaveBeenLastCalledWith({ event: "onCameraChanged",
++      data: { scrollX: 119, scrollY: 238, zoom: 1.5 } });
++  });
++  it("does not deliver duplicates or pending updates after stop", () => {
++    callback(10, 20, { value: 1 });
++    vi.advanceTimersByTime(100);
++    callback(10, 20, { value: 1 });
++    vi.advanceTimersByTime(100);
++    expect(postMessage).toHaveBeenCalledTimes(1);
++    callback(30, 40, { value: 2 });
++    stop();
++    vi.advanceTimersByTime(100);
++    expect(postMessage).toHaveBeenCalledTimes(1);
++  });
++});
+diff --git a/excalidraw-app/excalidrawZ/desktopControls.test.ts b/excalidraw-app/excalidrawZ/desktopControls.test.ts
+new file mode 100644
+index 00000000..9e2354da
+--- /dev/null
++++ b/excalidraw-app/excalidrawZ/desktopControls.test.ts
+@@ -0,0 +1,13 @@
++import { deriveStylesPanelMode, getFormFactor } from "@excalidraw/common";
++
++it("retains desktop controls in a medium desktop window", () => {
++  expect(getFormFactor(900, 700)).toBe("desktop");
++  expect(deriveStylesPanelMode({
++    formFactor: getFormFactor(900, 700), desktopUIMode: "full",
++    userAgent: { isMobileDevice: false, platform: "other" },
++    isTouchScreen: false, canFitSidebar: false, isLandscape: true,
++  })).toBe("full");
++});
++it("retains the mobile fallback for genuinely narrow windows", () => {
++  expect(getFormFactor(500, 700)).toBe("phone");
++});
+diff --git a/excalidraw-app/excalidrawZ/index.js b/excalidraw-app/excalidrawZ/index.js
+index 34b742c7..d2cba764 100644
+--- a/excalidraw-app/excalidrawZ/index.js
++++ b/excalidraw-app/excalidrawZ/index.js
+@@ -419,26 +419,6 @@ const startWatchExcalidrawState = () => {
+   });
+ };
+ 
+-const hideEls = () => {
+-  const targetNode = document.body;
+-  // Options for the observer (which mutations to observe)
+-  const config = { attributes: true, childList: true, subtree: true };
+-  // Callback function to execute when mutations are observed
+-  const callback = (mutationList) => {
+-    for (const mutation of mutationList) {
+-      // console.log(mutation);
+-      if (mutation.type === "childList") {
+-      }
+-    }
+-  };
+-
+-  // Create an observer instance linked to the callback function
+-  const observer = new MutationObserver(callback);
+-
+-  // Start observing the target node for configured mutations
+-  observer.observe(targetNode, config);
+-};
+-
+ const watchHistoryButtonState = () => {
+   const containerNode = document.querySelector(".excalidraw-container");
+   let undoButtonNode = null;
+@@ -489,7 +469,7 @@ const watchHistoryButtonState = () => {
+       event: "historyStateChanged",
+       data: {
+         type: "undo",
+-        disabled: newUndoButtonNode.disabled,
++        disabled: newUndoButtonNode?.disabled ?? true,
+       },
+     });
+     const newRedoButtonNode = document.querySelector(
+@@ -499,7 +479,7 @@ const watchHistoryButtonState = () => {
+       event: "historyStateChanged",
+       data: {
+         type: "redo",
+-        disabled: newRedoButtonNode.disabled,
++        disabled: newRedoButtonNode?.disabled ?? true,
+       },
+     });
+     if (newUndoButtonNode && newUndoButtonNode !== undoButtonNode) {
+@@ -543,7 +523,6 @@ const onDomReady = () => {
+   // DOM-level setup only. The "onload" message is deferred until the
+   // helper is fully initialized (excalidrawAPI bridged + trackers started),
+   // which is signalled by App.tsx via `notifyHelperReady()` below.
+-  hideEls();
+   observeContainerLoad(() => {
+     watchHistoryButtonState();
+   });
+diff --git a/excalidraw-app/excalidrawZ/message.js b/excalidraw-app/excalidrawZ/message.js
+index 41f3bc00..f8d80929 100644
+--- a/excalidraw-app/excalidrawZ/message.js
++++ b/excalidraw-app/excalidrawZ/message.js
+@@ -54,7 +54,6 @@ export const sendMessage = ({ event, data }) => {
+     return false;
+   }
+ 
+-  console.info("sendMessage", { event, data });
+   try {
+     messageHandler.postMessage({
+       event,
+diff --git a/excalidraw-app/index.html b/excalidraw-app/index.html
+index a87350da..120cb4ee 100644
+--- a/excalidraw-app/index.html
++++ b/excalidraw-app/index.html
+@@ -94,24 +94,6 @@
+ 
+     <!------------------------------------------------------------------------->
+     <% if (typeof PROD != 'undefined' && PROD == true) { %>
+-    <script>
+-      // Redirect Excalidraw+ users which have auto-redirect enabled.
+-      //
+-      // Redirect only the bare root path, so link/room/library urls are not
+-      // redirected.
+-      //
+-      // Putting into index.html for best performance (can't redirect on server
+-      // due to location.hash checks).
+-      if (
+-        window.location.pathname === "/" &&
+-        !window.location.hash &&
+-        !window.location.search &&
+-        // if its present redirect
+-        document.cookie.includes("excplus-autoredirect=true")
+-      ) {
+-        window.location.href = "https://app.excalidraw.com";
+-      }
+-    </script>
+ 
+     <!-- Following placeholder is replaced during the build step -->
+     <!-- PLACEHOLDER:EXCALIDRAW_APP_FONTS -->
+diff --git a/packages/common/src/editorInterface.ts b/packages/common/src/editorInterface.ts
+index d18b7a7d..10f76cea 100644
+--- a/packages/common/src/editorInterface.ts
++++ b/packages/common/src/editorInterface.ts
+@@ -142,7 +142,7 @@ export const getFormFactor = (
+     return "phone";
+   }
+ 
+-  if (isTabletBreakpoint(editorWidth, editorHeight)) {
++  if (isMobileOrTablet() && isTabletBreakpoint(editorWidth, editorHeight)) {
+     return "tablet";
+   }
+ 
+diff --git a/packages/excalidraw/components/LayerUI.tsx b/packages/excalidraw/components/LayerUI.tsx
+index e0680d1a..a1581172 100644
+--- a/packages/excalidraw/components/LayerUI.tsx
++++ b/packages/excalidraw/components/LayerUI.tsx
+@@ -232,7 +232,7 @@ const LayerUI = ({
+   };
+ 
+   const renderCanvasActions = () => (
+-    <div style={{ position: "relative", display: "none" }}>
++    <div style={{ position: "relative" }}>
+       <div className="excalidraw-ui-top-left">
+         {renderTopLeftUI?.(false, appState)}
+         <tunnels.MainMenuTunnel.Out />
+@@ -348,7 +348,7 @@ const LayerUI = ({
+             appState.openDialog?.name !== "elementLinkSelector" && (
+               <Section heading="shapes" className="shapes-section">
+                 {(heading: React.ReactNode) => (
+-                  <div style={{ position: "relative", display: "none" }}>
++                  <div style={{ position: "relative" }}>
+                     {renderWelcomeScreen && (
+                       <tunnels.WelcomeScreenToolbarHintTunnel.Out />
+                     )}
+@@ -403,7 +403,7 @@ const LayerUI = ({
+               },
+             )}
+           >
+-            <div style={{ display: "none" }}>
++            <div>
+               {defaultUIEnabled && appState.collaborators.size > 0 && (
+                 <UserList
+                   collaborators={appState.collaborators}
+diff --git a/packages/excalidraw/components/footer/Footer.tsx b/packages/excalidraw/components/footer/Footer.tsx
+index daae0c38..469444dd 100644
+--- a/packages/excalidraw/components/footer/Footer.tsx
++++ b/packages/excalidraw/components/footer/Footer.tsx
+@@ -72,7 +72,6 @@ const Footer = ({
+               "transition-right": appState.zenModeEnabled,
+             },
+           )}
+-          style={{ display: "none" }}
+         >
+           <div style={{ position: "relative" }}>
+             {renderWelcomeScreen && <WelcomeScreenHelpHintTunnel.Out />}
