@@ -244,7 +244,10 @@ extension ExcalidrawCore: WKScriptMessageHandler {
     }
 
     private func sanitizeScriptMessageBody(_ value: Any) -> SanitizedScriptMessageBody {
-        sanitizeScriptMessageValue(value, path: "$")
+        var components: [ScriptMessagePathComponent] = []
+        var paths: [String] = []
+        let replacement = sanitizedScriptMessageValue(value, components: &components, paths: &paths)
+        return SanitizedScriptMessageBody(value: replacement ?? value, nonFiniteNumberPaths: paths)
     }
 
     private func scriptMessageEventName(_ value: Any) -> String {
@@ -255,43 +258,63 @@ extension ExcalidrawCore: WKScriptMessageHandler {
         return event
     }
 
-    private func sanitizeScriptMessageValue(_ value: Any, path: String) -> SanitizedScriptMessageBody {
+    private enum ScriptMessagePathComponent {
+        case key(String)
+        case index(Int)
+    }
+
+    /// Returns a replacement only when `value` contains a non-finite number.
+    /// Ordinary messages are passed through without copying every node or
+    /// formatting a path string for each one.
+    private func sanitizedScriptMessageValue(
+        _ value: Any,
+        components: inout [ScriptMessagePathComponent],
+        paths: inout [String]
+    ) -> Any? {
         switch value {
             case let dictionary as [String: Any]:
-                var paths: [String] = []
-                var sanitized: [String: Any] = [:]
+                var sanitized: [String: Any]?
                 for (key, child) in dictionary {
-                    let result = sanitizeScriptMessageValue(child, path: "\(path).\(key)")
-                    paths.append(contentsOf: result.nonFiniteNumberPaths)
-                    sanitized[key] = result.value
+                    components.append(.key(key))
+                    if let replacement = sanitizedScriptMessageValue(child, components: &components, paths: &paths) {
+                        if sanitized == nil { sanitized = dictionary }
+                        sanitized?[key] = replacement
+                    }
+                    components.removeLast()
                 }
-                return SanitizedScriptMessageBody(value: sanitized, nonFiniteNumberPaths: paths)
+                return sanitized
             case let array as [Any]:
-                var paths: [String] = []
-                let sanitized = array.enumerated().map { index, child in
-                    let result = sanitizeScriptMessageValue(child, path: "\(path)[\(index)]")
-                    paths.append(contentsOf: result.nonFiniteNumberPaths)
-                    return result.value
+                var sanitized: [Any]?
+                for (index, child) in array.enumerated() {
+                    components.append(.index(index))
+                    if let replacement = sanitizedScriptMessageValue(child, components: &components, paths: &paths) {
+                        if sanitized == nil { sanitized = array }
+                        sanitized?[index] = replacement
+                    }
+                    components.removeLast()
                 }
-                return SanitizedScriptMessageBody(value: sanitized, nonFiniteNumberPaths: paths)
+                return sanitized
             case let number as NSNumber:
-                if CFGetTypeID(number) == CFBooleanGetTypeID() {
-                    return SanitizedScriptMessageBody(value: number, nonFiniteNumberPaths: [])
+                if CFGetTypeID(number) == CFBooleanGetTypeID() || number.doubleValue.isFinite {
+                    return nil
                 }
-                let double = number.doubleValue
-                return double.isFinite
-                    ? SanitizedScriptMessageBody(value: number, nonFiniteNumberPaths: [])
-                    : SanitizedScriptMessageBody(value: NSNull(), nonFiniteNumberPaths: [path])
             case let double as Double:
-                return double.isFinite
-                    ? SanitizedScriptMessageBody(value: double, nonFiniteNumberPaths: [])
-                    : SanitizedScriptMessageBody(value: NSNull(), nonFiniteNumberPaths: [path])
+                if double.isFinite { return nil }
             case let float as Float:
-                return float.isFinite
-                    ? SanitizedScriptMessageBody(value: float, nonFiniteNumberPaths: [])
-                    : SanitizedScriptMessageBody(value: NSNull(), nonFiniteNumberPaths: [path])
+                if float.isFinite { return nil }
             default:
-                return SanitizedScriptMessageBody(value: value, nonFiniteNumberPaths: [])
+                return nil
+        }
+        paths.append(Self.scriptMessagePath(components))
+        return NSNull()
+    }
+
+    private static func scriptMessagePath(_ components: [ScriptMessagePathComponent]) -> String {
+        components.reduce(into: "$") { path, component in
+            switch component {
+                case .key(let key): path += ".\(key)"
+                case .index(let index): path += "[\(index)]"
+            }
         }
     }
 
@@ -1474,7 +1497,10 @@ extension ExcalidrawFile {
         existingContent: Data,
         data: ExcalidrawCanvasView.Coordinator.ExcalidrawFileData
     ) throws -> PreparedCanvasDataUpdate {
-        var contentObject = try JSONSerialization.jsonObject(with: existingContent) as! [String : Any]
+        // The live canvas is authoritative. A missing or damaged stored document must
+        // not crash the app or block every later save, so fall back to a minimal envelope.
+        var contentObject = ((try? JSONSerialization.jsonObject(with: existingContent)) as? [String: Any])
+            ?? ["type": "excalidraw", "version": 2, "source": "https://excalidraw.com"]
         guard let fileDataJson = try JSONSerialization.jsonObject(with: data.documentData) as? [String : Any] else {
             struct InvalidPayloadError: LocalizedError {
                 var errorDescription: String? {

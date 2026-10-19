@@ -35,10 +35,38 @@ final class FileItemPreviewCache: NSCache<NSString, PlatformImage> {
     private var retainedOrder: [String] = []
     private var retainedTotalCost = 0
 
+    /// Retained previews survive ordinary NSCache eviction, so release them
+    /// explicitly when the system asks for memory.
+    private var memoryPressureSource: DispatchSourceMemoryPressure?
+
     private override init() {
         super.init()
         countLimit = Self.retainedCountLimit
         totalCostLimit = Self.retainedCostLimit
+        let source = DispatchSource.makeMemoryPressureSource(
+            eventMask: [.warning, .critical],
+            queue: .global(qos: .utility)
+        )
+        source.setEventHandler { [weak self, weak source] in
+            guard let self, let event = source?.data else { return }
+            self.releaseRetainedPreviews(keepingMostRecent: event.contains(.critical) ? 0 : 32)
+        }
+        source.resume()
+        memoryPressureSource = source
+    }
+
+    /// Drops strong references beyond the most recently used previews. NSCache
+    /// may still keep the dropped images until it decides to evict them.
+    func releaseRetainedPreviews(keepingMostRecent keepCount: Int) {
+        retainedLock.lock()
+        let dropCount = max(0, retainedOrder.count - max(0, keepCount))
+        for key in retainedOrder.prefix(dropCount) {
+            if let preview = retainedPreviews.removeValue(forKey: key) {
+                retainedTotalCost -= preview.cost
+            }
+        }
+        retainedOrder.removeFirst(dropCount)
+        retainedLock.unlock()
     }
     
     static func cacheKey(forID id: String, colorScheme: ColorScheme) -> NSString {

@@ -217,7 +217,7 @@ struct LocalFilesProvider<Content: View>: View {
                     LocalFilesProviderCache.setFiles(snapshot.files, for: requestedCacheKey)
                 }
                 let refreshedAt = Date()
-                updateFlags = Dictionary(uniqueKeysWithValues: snapshot.files.map { ($0, refreshedAt) })
+                updateFlags = Dictionary(snapshot.files.map { ($0, refreshedAt) }, uniquingKeysWith: { first, _ in first })
             } catch is CancellationError {
                 return
             } catch {

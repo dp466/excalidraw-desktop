@@ -262,13 +262,15 @@ actor DropboxCloudStorageSession: CloudStorageSession {
 
     private func applyChanges(_ entries: [DropboxMetadata]) -> [CloudStorageChange] {
         var changes: [CloudStorageChange] = []
+        // A delta page can repeat a path; the latest entry describes its state.
         let incomingFolderIDsByPath: [String: CloudStorageItemID] = Dictionary(
-            uniqueKeysWithValues: entries.compactMap { metadata in
+            entries.compactMap { metadata in
                 guard metadata.isFolder,
                       let path = metadata.pathLower,
                       let itemID = metadata.itemID else { return nil }
                 return (path, itemID)
-            }
+            },
+            uniquingKeysWith: { _, latest in latest }
         )
 
         for metadata in entries {

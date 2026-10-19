@@ -54,6 +54,9 @@ actor LocalAutosaveRecoveryStore {
     private let directory: URL
     private let retention: Retention
     private let fileManager = FileManager.default
+    /// Fingerprint of the current copy this store installed, by document directory.
+    /// Lets an unchanged autosave skip JSON validation and re-reading the old copy.
+    private var installedFingerprints: [String: Data] = [:]
 
     init(directory: URL = LocalAutosaveRecoveryStore.defaultDirectory, retention: Retention? = nil) {
         self.directory = directory.standardizedFileURL.resolvingSymlinksInPath()
@@ -76,15 +79,23 @@ actor LocalAutosaveRecoveryStore {
 
         // This actor runs off MainActor. Do not suspend between validation and
         // installation: actor reentrancy could let an older snapshot replace a newer one.
-        let prepared = try Self.prepare(content: content)
+        let directoryName = Self.documentDirectoryName(for: normalizedDocumentID)
+        let fingerprint = Data(SHA256.hash(data: content))
 
         try createRecoveryDirectoryIfNeeded()
         let documentDirectory = directory
-            .appendingPathComponent(Self.documentDirectoryName(for: normalizedDocumentID), isDirectory: true)
+            .appendingPathComponent(directoryName, isDirectory: true)
         try fileManager.createDirectory(at: documentDirectory, withIntermediateDirectories: true)
 
         let currentCopies = try ownCopyURLs(in: documentDirectory, prefix: "current-")
+        if installedFingerprints[directoryName] == fingerprint, !currentCopies.isEmpty {
+            // Same bytes as the copy this store last installed and validated.
+            try prune(except: documentDirectory)
+            return
+        }
+        let prepared = try Self.prepare(content: content, fingerprint: fingerprint)
         if let current = newestURL(in: currentCopies), try hasFingerprint(prepared.fingerprint, at: current) {
+            installedFingerprints[directoryName] = prepared.fingerprint
             // Still prune after a logically successful autosave, but do not rewrite identical bytes.
             try prune(except: documentDirectory)
             return
@@ -134,6 +145,7 @@ actor LocalAutosaveRecoveryStore {
             try? fileManager.removeItem(at: old)
         }
 
+        installedFingerprints[directoryName] = prepared.fingerprint
         // Do not remove anything outside the store root, and only after the new copy installed.
         try? removeOwnCopies(in: documentDirectory, prefix: ".incoming-")
         try prune(except: documentDirectory)
@@ -200,6 +212,7 @@ actor LocalAutosaveRecoveryStore {
             // A directory is removable only when every item is a file owned by this store.
             guard try isSafeToRemoveStoreDocumentDirectory(candidate.url) else { continue }
             try fileManager.removeItem(at: candidate.url)
+            installedFingerprints[candidate.url.lastPathComponent] = nil
             remainingDocuments -= 1
             totalBytes -= candidate.byteCount
         }
@@ -247,7 +260,7 @@ actor LocalAutosaveRecoveryStore {
         }
     }
 
-    private static func prepare(content: Data) throws -> PreparedContent {
+    private static func prepare(content: Data, fingerprint: Data) throws -> PreparedContent {
         guard let root = try JSONSerialization.jsonObject(with: content, options: []) as? [String: Any],
               let type = root["type"] as? String,
               type == "excalidraw",
@@ -261,7 +274,7 @@ actor LocalAutosaveRecoveryStore {
         return PreparedContent(
             data: content,
             version: version,
-            fingerprint: Data(SHA256.hash(data: content))
+            fingerprint: fingerprint
         )
     }
 

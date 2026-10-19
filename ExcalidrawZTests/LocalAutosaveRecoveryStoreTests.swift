@@ -55,6 +55,41 @@ final class LocalAutosaveRecoveryStoreTests: XCTestCase {
         ])
     }
 
+    func testUnchangedSaveSkipsRewriteButRestoresMissingCopyAndTracksLatestBytes() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = LocalAutosaveRecoveryStore(directory: root)
+        let first = try drawingData(elementID: "first")
+        let second = try drawingData(elementID: "second")
+
+        try await store.save(documentID: "document-1", name: "Board", content: first)
+        let documentDirectory = try onlyDocumentDirectory(in: root)
+        let current = try XCTUnwrap(try recoveryCopies(in: documentDirectory).first)
+        let installedAt = try XCTUnwrap(
+            try current.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        )
+
+        try await store.save(documentID: "document-1", name: "Board", content: first)
+        XCTAssertEqual(
+            try current.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+            installedAt
+        )
+
+        // A copy removed outside the store is written again, not assumed present.
+        try FileManager.default.removeItem(at: current)
+        try await store.save(documentID: "document-1", name: "Board", content: first)
+        XCTAssertEqual(try Data(contentsOf: current), first)
+
+        // A -> B -> A must install A again; the cached fingerprint follows the latest copy.
+        try await store.save(documentID: "document-1", name: "Board", content: second)
+        try await store.save(documentID: "document-1", name: "Board", content: first)
+        let copies = try recoveryCopies(in: documentDirectory)
+        let latest = try XCTUnwrap(copies.first { $0.lastPathComponent.hasPrefix("current-") })
+        let previous = try XCTUnwrap(copies.first { $0.lastPathComponent.hasPrefix("previous-") })
+        XCTAssertEqual(try Data(contentsOf: latest), first)
+        XCTAssertEqual(try Data(contentsOf: previous), second)
+    }
+
     func testInvalidPayloadDoesNotReplaceExistingRecoveryCopy() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

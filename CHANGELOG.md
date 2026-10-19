@@ -4,6 +4,15 @@ This changelog covers the ExcalidrawDesktop fork. Historical ExcalidrawZ release
 
 ## Unreleased
 
+### Local build 132
+
+- Fixed crashes when a drawing, presentation configuration, or library repeats an element, frame, or item ID; the first entry is used.
+- Fixed a crash when a stored document is damaged or not a JSON object; the next canvas save writes a valid document instead of failing every save.
+- Reduced per-message work in the web-to-native bridge: messages are no longer copied node by node to check for non-finite numbers.
+- Unchanged autosaves now skip JSON validation and re-reading the previous recovery copy.
+- Retained cover previews are released under system memory pressure instead of staying pinned at up to 192 MB.
+- Keeps the editor open on drawings renamed inside a linked folder.
+
 ### Local build 131
 
 - Fixed the macOS bundle name so the running app identifies as ExcalidrawDesktop in the Dock.

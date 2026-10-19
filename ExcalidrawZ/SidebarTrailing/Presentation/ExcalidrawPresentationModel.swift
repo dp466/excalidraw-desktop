@@ -324,8 +324,10 @@ final class ExcalidrawPresentationModel: ObservableObject {
     }
 
     private func applyConfigurationOrderToSlides() {
+        // Hand-edited or merged scenes can repeat element IDs; never trap on them.
         let slidesByID = Dictionary(
-            uniqueKeysWithValues: slides.map { ($0.id, $0) }
+            slides.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
         )
         slides = configuration.pages.compactMap {
             slidesByID[$0.frameID]
@@ -359,7 +361,8 @@ final class ExcalidrawPresentationModel: ObservableObject {
         frames: [ExcalidrawFrameLikeElement]
     ) -> [FramePage] {
         let framesByID = Dictionary(
-            uniqueKeysWithValues: frames.map { ($0.id, $0) }
+            frames.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
         )
         return configuration.pages.compactMap { page in
             guard let frame = framesByID[page.frameID] else {

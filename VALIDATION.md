@@ -1,5 +1,29 @@
 # Fork validation
 
+## Build 132: crash hardening and bridge/memory optimizations (2026-10-19)
+
+- Duplicate element, frame, slide and library-item IDs no longer trap in the
+  presentation model, MCP presentation/library commands, local folder listing
+  or Dropbox deltas. A stored document that is not a JSON object no longer
+  crashes canvas persistence; the save writes a valid envelope instead.
+- The web-to-native message sanitizer now copies only when it finds a
+  non-finite number, instead of rebuilding every message node and formatting
+  a path string per node. Unchanged recovery autosaves skip JSON validation and
+  the old-copy re-read. Retained cover previews are released on memory-pressure
+  warnings (all but 32) and critical events (all).
+- A tried change that restored canvas keyboard focus after in-place saves was
+  reverted: it changed the editor revision after MCP saves, which failed the
+  native MCP acceptance check 4/4 times (baseline 4/4 pass). After reverting,
+  the check passed 4/4.
+- Full `script/test_local.sh` on aMac (macOS 27.0.1, Xcode 27.0): 42
+  diagram-plugin tests, 62 editor tests in 11 files, TypeScript checking, patch
+  verification, **69 XCTest cases** (including two new regressions for damaged
+  stored content and recovery fingerprint caching) and **26 Swift Testing
+  cases** passed. `script/test_stage_native_snapshot.sh` passed.
+- Not measured: frame time or resident memory of large real-world drawings.
+  The optimizations reduce work per message and per autosave; no benchmark
+  figure is claimed.
+
 ## Build 131: Dock name and What's New branding
 
 - The local fork's Debug and Release product name is now `ExcalidrawDesktop`.

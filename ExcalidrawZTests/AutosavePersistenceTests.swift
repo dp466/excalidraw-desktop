@@ -39,6 +39,24 @@ final class AutosavePersistenceTests: XCTestCase {
         )
     }
 
+    func testCanvasUpdateReplacesDamagedStoredContentInsteadOfCrashing() throws {
+        let payload = try JSONSerialization.data(withJSONObject: [
+            "elements": [[String: Any]](), "files": [String: Any](), "appState": [String: Any]()
+        ])
+        for damaged in [Data("[]".utf8), Data("null".utf8), Data("not json".utf8)] {
+            let prepared = try ExcalidrawFile.prepareCanvasDataUpdate(
+                existingContent: damaged,
+                data: .init(documentData: payload, elements: nil, files: [:])
+            )
+            let object = try XCTUnwrap(
+                try JSONSerialization.jsonObject(with: prepared.content) as? [String: Any]
+            )
+            XCTAssertEqual(object["type"] as? String, "excalidraw")
+            XCTAssertNotNil(object["elements"] as? [Any])
+            XCTAssertNoThrow(try ExcalidrawFile(data: prepared.content))
+        }
+    }
+
     func testHostedTestsUseOnlyInMemoryStores() {
         XCTAssertTrue(AppRuntime.isRunningTests)
         let stores = PersistenceController.shared.container.persistentStoreCoordinator.persistentStores

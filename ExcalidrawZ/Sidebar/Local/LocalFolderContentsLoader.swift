@@ -43,7 +43,7 @@ enum LocalFolderContentsLoader {
             return listedURL
         }
 
-        let metadata = Dictionary(uniqueKeysWithValues: files.map { file in
+        let metadata = Dictionary(files.map { file in
             let values = try? file.resourceValues(
                 forKeys: [.contentModificationDateKey, .creationDateKey]
             )
@@ -52,7 +52,7 @@ enum LocalFolderContentsLoader {
                 updatedAt: values?.contentModificationDate,
                 createdAt: values?.creationDate
             ))
-        })
+        }, uniquingKeysWith: { first, _ in first })
         let field = ExcalidrawFileSortField(rawValue: sortFieldRawValue) ?? .updatedAt
         let sortedFiles = ExcalidrawFileSortProvider.sorted(files, by: field) { file in
             let values = metadata[file]

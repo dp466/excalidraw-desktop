@@ -849,7 +849,7 @@ extension ExcalidrawMCPAppBridge {
             let library: Library
             if let id = arguments["library_id"]?.stringValue { library = try mcpLibrary(id, context: context) }
             else { library = Library(name: try MCPDocumentCommandValidation.name(arguments["name"]?.stringValue ?? "Imported library"), context: context); library.type = "excalidrawlib" }
-            let existing = Dictionary(uniqueKeysWithValues: mcpLibraryItems(library).compactMap { item in item.id.map { ($0, item) } })
+            let existing = Dictionary(mcpLibraryItems(library).compactMap { item in item.id.map { ($0, item) } }, uniquingKeysWith: { first, _ in first })
             guard arguments["replace_existing"] == .bool(true) || records.allSatisfy({ existing[$0.0] == nil }) else {
                 if library.isInserted { context.delete(library) }
                 throw MCPDocumentCommandError.invalid("Imported IDs already exist; set replace_existing:true to replace those items.")
@@ -1018,7 +1018,7 @@ extension ExcalidrawMCPAppBridge {
             if let order = arguments["frame_order"]?.arrayValue {
                 let ids = order.compactMap(\.stringValue)
                 guard ids.count == order.count, ids.count == frameIDs.count, Set(ids) == Set(frameIDs) else { throw MCPDocumentCommandError.invalid("frame_order must include every current frame ID exactly once.") }
-                let pages = Dictionary(uniqueKeysWithValues: configuration.pages.map { ($0.frameID, $0) })
+                let pages = Dictionary(configuration.pages.map { ($0.frameID, $0) }, uniquingKeysWith: { first, _ in first })
                 configuration.pages = ids.compactMap { pages[$0] }
             }
             if let values = arguments["pages"]?.arrayValue {
@@ -1048,7 +1048,7 @@ extension ExcalidrawMCPAppBridge {
             if action == "go_to", MCPDocumentCommandState.shared.presentationDocumentID != id { throw MCPDocumentCommandError.invalid("Start this document's presentation before using go_to.") }
             let model = ExcalidrawPresentationModel()
             guard await model.load(activeFile: active, coordinator: coordinator, colorScheme: .light, contentChangeToken: nil) else { throw MCPDocumentCommandError.unavailable("The presentation slides could not be rendered.") }
-            let slidesByID = Dictionary(uniqueKeysWithValues: model.slides.map { ($0.id, $0) })
+            let slidesByID = Dictionary(model.slides.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             let slides = configuration.pages.filter { !$0.isHidden }.compactMap { page -> ExcalidrawPresentationSlide? in
                 guard var slide = slidesByID[page.frameID] else { return nil }
                 slide.transition = page.transition; slide.transitionDuration = page.transitionDuration; slide.speakerNotes = page.speakerNotes
@@ -1060,7 +1060,7 @@ extension ExcalidrawMCPAppBridge {
             ExcalidrawPresentationController.shared.present(title: arguments["title"]?.stringValue ?? active.name ?? "Diagram", slides: slides, initialSlideID: initial)
             MCPDocumentCommandState.shared.presentationDocumentID = id
         } else if action != "list" { throw MCPDocumentCommandError.invalid("Unsupported presentation action: \(action).") }
-        let framesByID = Dictionary(uniqueKeysWithValues: frames.compactMap { frame in frame["id"]?.stringValue.map { ($0, frame) } })
+        let framesByID = Dictionary(frames.compactMap { frame in frame["id"]?.stringValue.map { ($0, frame) } }, uniquingKeysWith: { first, _ in first })
         return .object(["document_id": .string(id), "presenting": .bool(MCPDocumentCommandState.shared.presentationDocumentID == id && ExcalidrawPresentationController.shared.session != nil), "pages": .array(configuration.pages.map { page in .object(["frame_id": .string(page.frameID), "name": framesByID[page.frameID]?["name"] ?? .null, "hidden": .bool(page.isHidden), "transition": .string(page.transition.rawValue), "transition_duration": .number(page.transitionDuration), "speaker_notes": .string(page.speakerNotes)]) }), "persistence": .string(action == "configure" ? "saved" : "unchanged")])
     }
 
