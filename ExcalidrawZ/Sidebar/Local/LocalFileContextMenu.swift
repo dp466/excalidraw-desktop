@@ -64,40 +64,70 @@ struct LocalFileMenuProvider: View {
                     name: firstFile?.deletingPathExtension().lastPathComponent ?? ""
                 ) { newName in
                     guard let file = firstFile else { return }
-                    renameFile(file: file, newName: newName)
+                    Task { await renameFile(file: file, newName: newName) }
                 }
             )
     }
-    
-    private func renameFile(file: URL, newName: String) {
-        do {
-            // find folder
-            let fetchRequest = NSFetchRequest<LocalFolder>(entityName: "LocalFolder")
-            fetchRequest.predicate = NSPredicate(format: "filePath == %@", file.deletingLastPathComponent().filePath)
-            guard let folder = try viewContext.fetch(fetchRequest).first else { return }
-            
-            try folder.withSecurityScopedURL { _ in
-                let newURL = file.deletingLastPathComponent()
-                    .appendingPathComponent(
-                        newName,
-                        conformingTo: .excalidrawFile
-                    )
-                try FileManager.default.moveItem(at: file, to: newURL)
-                
-                // Update local file ID mapping
-                ExcalidrawFile.localFileURLIDMapping[newURL] = ExcalidrawFile.localFileURLIDMapping[file]
-                ExcalidrawFile.localFileURLIDMapping[file] = nil
-                
-                // Also update checkpoints
-                updateCheckpoints(oldURL: file, newURL: newURL)
-                rebindAIConversations(oldURL: file, newURL: newURL)
-                
-                localFolderState.itemRenamedPublisher.send(newURL.filePath)
-            }
-            
-        } catch {
-            alertToast(error)
+
+    @MainActor
+    private func renameFile(file: URL, newName: String) async {
+        let newURL = file.deletingLastPathComponent()
+            .appendingPathComponent(
+                newName,
+                conformingTo: .excalidrawFile
+            )
+        guard !newURL.hasSameFileSystemPath(as: file) else { return }
+
+        // An open editor session is bound to the file URL. Close it first so
+        // pending edits are saved to the old path, then reopen it at the new
+        // path; otherwise the editor keeps the old name and autosave
+        // recreates the old file.
+        let wasOpen = fileState.currentActiveFile == .localFile(file)
+        if wasOpen, !(await fileState.requestActiveFileChange(nil)) {
+            return
         }
+
+        do {
+            guard try moveFile(file, to: newURL) else {
+                if wasOpen { _ = await fileState.requestActiveFileChange(.localFile(file)) }
+                return
+            }
+        } catch {
+            if wasOpen { _ = await fileState.requestActiveFileChange(.localFile(file)) }
+            alertToast(error)
+            return
+        }
+
+        if fileState.selectedLocalFiles.contains(file) {
+            fileState.selectedLocalFiles.remove(file)
+            fileState.selectedLocalFiles.insert(newURL)
+        }
+        if wasOpen {
+            _ = await fileState.requestActiveFileChange(.localFile(newURL))
+        }
+    }
+
+    /// Returns false when the file's linked folder is unknown.
+    private func moveFile(_ file: URL, to newURL: URL) throws -> Bool {
+        // find folder
+        let fetchRequest = NSFetchRequest<LocalFolder>(entityName: "LocalFolder")
+        fetchRequest.predicate = NSPredicate(format: "filePath == %@", file.deletingLastPathComponent().filePath)
+        guard let folder = try viewContext.fetch(fetchRequest).first else { return false }
+
+        try folder.withSecurityScopedURL { _ in
+            try FileManager.default.moveItem(at: file, to: newURL)
+
+            // Update local file ID mapping
+            ExcalidrawFile.localFileURLIDMapping[newURL] = ExcalidrawFile.localFileURLIDMapping[file]
+            ExcalidrawFile.localFileURLIDMapping[file] = nil
+
+            // Also update checkpoints
+            updateCheckpoints(oldURL: file, newURL: newURL)
+            rebindAIConversations(oldURL: file, newURL: newURL)
+
+            localFolderState.itemRenamedPublisher.send(newURL.filePath)
+        }
+        return true
     }
 
     private func rebindAIConversations(oldURL: URL, newURL: URL) {
