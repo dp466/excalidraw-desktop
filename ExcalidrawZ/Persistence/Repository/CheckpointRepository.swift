@@ -57,7 +57,8 @@ actor CheckpointRepository {
             // Clean up old checkpoints if needed
             if let checkpoints = try? PersistenceController.shared.fetchFileCheckpoints(of: file, viewContext: context),
                checkpoints.count > 50 {
-                file.removeFromCheckpoints(checkpoints.last!)
+                checkpoints.dropFirst(50).forEach(context.delete)
+                try context.save()
             }
 
             return checkpoint.objectID

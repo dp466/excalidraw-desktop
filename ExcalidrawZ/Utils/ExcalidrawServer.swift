@@ -71,10 +71,13 @@ class ExcalidrawServer {
     func start() async throws {
         await server.appendRoute(
             "GET /*",
-            to: .directory(
-                for: .main,
-                subPath: "excalidraw-latest",
-                serverPath: ""
+            to: ContainedDirectoryHTTPHandler(
+                root: Bundle.main.resourceURL?.appendingPathComponent("excalidraw-latest", isDirectory: true),
+                inner: DirectoryHTTPHandler(
+                    bundle: .main,
+                    subPath: "excalidraw-latest",
+                    serverPath: ""
+                )
             )
         )
         try await server.run()
@@ -83,5 +86,31 @@ class ExcalidrawServer {
     
     func stop() async {
         await server.stop()
+    }
+}
+
+/// Serves only files inside the bundled editor directory. The library handler
+/// decodes `%2e%2e` segments without containing them, which exposed any file the
+/// user can read to every local process through the loopback port.
+struct ContainedDirectoryHTTPHandler: HTTPHandler {
+    let root: URL?
+    let inner: any HTTPHandler
+
+    func handleRequest(_ request: HTTPRequest) async throws -> HTTPResponse {
+        guard let root, Self.isContained(requestPath: request.path, in: root) else {
+            return HTTPResponse(statusCode: .notFound)
+        }
+        return try await inner.handleRequest(request)
+    }
+
+    static func isContained(requestPath: String, in root: URL) -> Bool {
+        let decoded = requestPath.removingPercentEncoding ?? requestPath
+        guard !decoded.contains("\0") else { return false }
+        let components = decoded.split(separator: "/", omittingEmptySubsequences: true)
+        guard !components.contains(where: { $0 == ".." || $0 == "." }) else { return false }
+        let resolvedRoot = root.standardizedFileURL.resolvingSymlinksInPath().path
+        let candidate = components.reduce(root) { $0.appendingPathComponent(String($1)) }
+            .standardizedFileURL.resolvingSymlinksInPath().path
+        return candidate == resolvedRoot || candidate.hasPrefix(resolvedRoot + "/")
     }
 }

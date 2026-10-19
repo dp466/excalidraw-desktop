@@ -22,6 +22,13 @@ struct QuickLookView: View {
         ZStack {
             if let file {
                 ExcalidrawRenderer(file: file)
+            } else if let error {
+                // A file that cannot be parsed must not leave Quick Look spinning.
+                Text(error.localizedDescription)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding()
             } else {
                 Color.clear
                     .overlay {

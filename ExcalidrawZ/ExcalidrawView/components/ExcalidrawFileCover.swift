@@ -55,6 +55,13 @@ final class FileItemPreviewCache: NSCache<NSString, PlatformImage> {
         memoryPressureSource = source
     }
 
+    /// Count and estimated bytes of previews pinned outside NSCache eviction.
+    func retainedPreviewStatistics() -> (count: Int, bytes: Int) {
+        retainedLock.lock()
+        defer { retainedLock.unlock() }
+        return (retainedOrder.count, retainedTotalCost)
+    }
+
     /// Drops strong references beyond the most recently used previews. NSCache
     /// may still keep the dropped images until it decides to evict them.
     func releaseRetainedPreviews(keepingMostRecent keepCount: Int) {

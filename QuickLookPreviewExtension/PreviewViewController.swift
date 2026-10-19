@@ -94,11 +94,12 @@ extension PreviewViewController {
         // Perform any setup necessary in order to prepare the view.
 
         // Quick Look will display a loading spinner until this returns.
+        // Publish to SwiftUI on the main actor, including the error state.
         do {
             let file = try ExcalidrawFile(contentsOf: url)
-            self.state.file = file
+            await MainActor.run { self.state.file = file }
         } catch {
-            self.state.error = error
+            await MainActor.run { self.state.error = error }
         }
     }
 }

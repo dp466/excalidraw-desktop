@@ -255,7 +255,9 @@ actor FileRepository {
             return file
         }
         let data = try await file.loadContent()
-        var contentObject = try JSONSerialization.jsonObject(with: data) as! [String : Any]
+        // A damaged stored envelope must not crash or block saving the live scene.
+        var contentObject = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])
+            ?? ["type": "excalidraw", "version": 2, "source": "https://excalidraw.com"]
         contentObject["elements"] = fileDataJson["elements"]
         contentObject["appState"] = fileDataJson["appState"]
         contentObject.removeValue(forKey: "files")
@@ -404,6 +406,17 @@ actor FileRepository {
         )
     }
 
+    static let maximumCheckpointsPerFile = 50
+
+    /// Checkpoints beyond the newest `maximumCheckpointsPerFile`, oldest last.
+    static func expiredCheckpointIDs(of file: File, context: NSManagedObjectContext) -> [NSManagedObjectID] {
+        guard let checkpoints = try? PersistenceController.shared.fetchFileCheckpoints(
+            of: file,
+            viewContext: context
+        ), checkpoints.count > maximumCheckpointsPerFile else { return [] }
+        return checkpoints.dropFirst(maximumCheckpointsPerFile).map(\.objectID)
+    }
+
     /// Create a new checkpoint for the file with explicit metadata.
     /// Source/description default to user-edit semantics when the call
     /// site is the historical user-edit path.
@@ -435,7 +448,7 @@ actor FileRepository {
                 updatedAt: checkpointUpdatedAt
             )
 
-        try await context.perform {
+        let expiredCheckpointIDs = try await context.perform { () throws -> [NSManagedObjectID] in
             guard let file = context.object(with: fileObjectID) as? File else {
                 throw AppError.fileError(.notFound)
             }
@@ -451,14 +464,18 @@ actor FileRepository {
 
             try context.save()
 
-            // Keep the existing retention behavior after the complete row has
-            // become visible to fetch requests.
-            if let checkpoints = try? PersistenceController.shared.fetchFileCheckpoints(
-                of: file,
-                viewContext: context
-            ), checkpoints.count > 50, let oldest = checkpoints.last {
-                file.removeFromCheckpoints(oldest)
-                try context.save()
+            // Keep the newest 50 after the complete row has become visible to
+            // fetch requests. Unlinking alone left the row and its stored content
+            // behind forever, so expired checkpoints are deleted below.
+            return Self.expiredCheckpointIDs(of: file, context: context)
+        }
+        for expiredCheckpointID in expiredCheckpointIDs {
+            do {
+                try await PersistenceController.shared.checkpointRepository
+                    .deleteCheckpoint(checkpointObjectID: expiredCheckpointID)
+            } catch {
+                // Retention cleanup must not fail the save that created a checkpoint.
+                logger.warning("Failed to delete expired checkpoint: \(error)")
             }
         }
         return checkpointID

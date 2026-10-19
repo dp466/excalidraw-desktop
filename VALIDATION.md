@@ -1,5 +1,32 @@
 # Fork validation
 
+## Build 133: security, storage-growth fixes and measured gains (2026-10-19)
+
+- Whole-codebase pattern sweep over all 722 Swift files (force casts and
+  `try!`, force indexing, unique-key dictionaries, observers and timers,
+  main-thread sync, static caches, file reads on the main actor), plus a review
+  of the Quick Look extension and both loopback servers.
+- Security: before the fix, `GET /%2e%2e/%2e%2e/Info.plist` and
+  `/../../../../../../../../../etc/hosts` on 127.0.0.1:8497 returned 200 from the
+  installed build 132. `ContainedDirectoryHTTPHandler` now rejects dot segments,
+  NUL bytes and symlink escapes before the library handler runs.
+- Checkpoint retention now deletes rows beyond 50 with their stored content;
+  the earlier code only unlinked them, and the orphan cleaner treated unlinked
+  rows as valid. Existing orphaned rows from earlier builds are not removed.
+- Measurements on aMac, Release, identical benchmark source on both trees:
+  unchanged recovery autosave of a 6.6 MB scene, 15 runs: build 131 median
+  24.25 ms, build 132+ median 2.14 ms. Web-message sanitizer (standalone `-O`
+  benchmark with the old and new code copied verbatim, Foundation payloads like
+  WebKit's): sanitize plus serialize 2,000 elements 44.6 → 30.7 ms; sanitize
+  alone 33.8 → 24.4 ms, retained extra heap 4.40 → 0 MB. Walking Foundation
+  containers directly was tried and measured slower (31.2 ms), so it was not
+  adopted. Preview cache fixture: 120 previews / 180 MB retained; after a
+  pressure warning 32 / 48 MB; after critical 0.
+- Full `script/test_local.sh`: 42 plugin tests, 62 editor tests, TypeScript,
+  patch verification, **74 XCTest** (new: containment, checkpoint retention,
+  preview pressure) and **26 Swift Testing** cases passed.
+- Not measured: whole-app resident memory or frame time on real drawings.
+
 ## Build 132: crash hardening and bridge/memory optimizations (2026-10-19)
 
 - Duplicate element, frame, slide and library-item IDs no longer trap in the

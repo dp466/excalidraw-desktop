@@ -4,6 +4,14 @@ This changelog covers the ExcalidrawDesktop fork. Historical ExcalidrawZ release
 
 ## Unreleased
 
+### Local build 133
+
+- Security: the embedded editor's loopback server (port 8497) served any file the user could read through `%2e%2e` path segments. Requests are now confined to the bundled editor folder, including symlinks.
+- Fixed unbounded File History storage growth: checkpoints beyond the newest 50 were only unlinked, never deleted, so their rows and stored content accumulated. They are now deleted with their stored content.
+- Quick Look previews of unreadable files now show the error instead of spinning forever.
+- Fixed another crash on damaged stored document content in the library save path.
+- Measured gains: unchanged recovery autosave of a 6.6 MB drawing 24.3 ms → 2.1 ms; web-message sanitizing about 31% faster with no duplicate copy (4.4 MB less transient heap for a 2,000-element message); memory pressure releases up to 180 MB of pinned previews in the test fixture.
+
 ### Local build 132
 
 - Fixed crashes when a drawing, presentation configuration, or library repeats an element, frame, or item ID; the first entry is used.
