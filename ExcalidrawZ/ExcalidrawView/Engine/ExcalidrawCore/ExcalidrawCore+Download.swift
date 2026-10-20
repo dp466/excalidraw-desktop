@@ -32,15 +32,27 @@ extension ExcalidrawCore: WKDownloadDelegate {
         downloads.removeValue(forKey: request)
     }
     
+    @MainActor
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        if let request = download.originalRequest {
+            downloads.removeValue(forKey: request)
+        }
+        logger.warning("download failed: \(error)")
+    }
+
     func onExportPNG(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String) -> URL? {
         self.logger.info("on export png.")
         let fileManager: FileManager = FileManager.default
         do {
             let directory: URL = try getTempDirectory()
             let fileExtension = suggestedFilename.components(separatedBy: ".").last ?? "png"
-            let fileName = self.parent?.fileState.currentActiveFile?.name?.appending(".\(fileExtension)") ?? suggestedFilename
+            // Drawing names may contain "/" or ":", which would name a folder.
+            let baseName = self.parent?.fileState.currentActiveFile?.name?
+                .components(separatedBy: CharacterSet(charactersIn: "/:"))
+                .joined(separator: "-")
+            let fileName = baseName.flatMap { $0.isEmpty ? nil : $0 + ".\(fileExtension)" } ?? suggestedFilename
             let url = directory.appendingPathComponent(fileName, conformingTo: .image)
-            if fileManager.fileExists(atPath: url.absoluteString) {
+            if fileManager.fileExists(atPath: url.path) {
                 try fileManager.removeItem(at: url)
             }
             

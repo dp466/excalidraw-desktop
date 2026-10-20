@@ -43,6 +43,7 @@ struct MultiFontPickerView: View {
     @State private var selectStartFont: String?
     
     @State private var keyboardMonitor: Any?
+    @State private var hostWindow: NSWindow?
 
     private var addedFonts: Set<String> {
         guard let fonts = try? JSONDecoder().decode([String].self, from: addedFontsData) else {
@@ -156,10 +157,20 @@ struct MultiFontPickerView: View {
         .sheet(isPresented: $showPicker) {
             FontSelectorView(selections: addedFontsBinding)
         }
+        .bindAppWindow($hostWindow)
         .onAppear {
-            // Backspace to remove selected font
+            if let keyboardMonitor {
+                NSEvent.removeMonitor(keyboardMonitor)
+            }
+            // Backspace removes the selected fonts. A local monitor sees every
+            // key press in the app, so act only in this window and never while
+            // a text field is being edited.
             keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
-                guard event.keyCode == 51 else { return event }
+                guard event.keyCode == 51,
+                      !selectedFonts.isEmpty,
+                      let window = event.window,
+                      window === hostWindow,
+                      !(window.firstResponder is NSText) else { return event }
                 for selected in selectedFonts {
                     remove(selected)
                 }
@@ -170,6 +181,7 @@ struct MultiFontPickerView: View {
             if let keyboardMonitor = keyboardMonitor {
                 NSEvent.removeMonitor(keyboardMonitor)
             }
+            keyboardMonitor = nil
         }
     }
 

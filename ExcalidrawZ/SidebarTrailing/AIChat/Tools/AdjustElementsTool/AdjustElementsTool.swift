@@ -1558,3 +1558,12 @@ extension ExcalidrawTextElement {
         self.lineHeight = lineHeight
     }
 }
+
+extension AdjustElementsTool {
+    /// Tool input is any finite JSON number; `Int(_:)` traps outside Int's
+    /// range. Excalidraw font family ids are small positive integers.
+    static func fontFamilyID(_ value: Double?) -> Int {
+        guard let value, value.isFinite else { return 5 }
+        return Int(min(max(value.rounded(), 1), 1_000))
+    }
+}

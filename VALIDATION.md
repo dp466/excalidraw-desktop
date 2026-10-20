@@ -1,5 +1,19 @@
 # Fork validation
 
+## Build 140: MCP, settings, sidebar and import review (2026-10-20)
+
+- Confirmed on build 139 before fixing: multi-file import with no selected
+  group terminated with `NSInvalidArgumentException` ("A fetch request must
+  have an entity"); a `replace_view` delete with `ids: 1e20` crashed the test
+  process. Both pass now (`ImportFilesTests`, `MCPNumberBoundsTests`).
+- New bounds tests: MCP checkpoint store (64), receipts file (256), tool
+  artifacts limited to the temporary directory, font family ids, shared file
+  names with "/".
+- `CheckpointRowCostTests`, 840 KB drawing with 1,152 elements: full decode
+  31.6–32.4 ms vs element count 3.7–3.8 ms; counts match.
+- Full `script/test_local.sh` under `caffeinate -du`: 42 plugin, 62 editor,
+  **107 XCTest** and **26 Swift Testing** cases passed.
+
 ## Build 139: quit blocked by a Keychain prompt (2026-10-20)
 
 - Reproduced while installing 138: Quit on build 137 never finished. A sample

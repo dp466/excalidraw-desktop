@@ -512,7 +512,10 @@ struct CheckpointRowView: View {
                 let content = try await PersistenceController.shared.checkpointRepository.loadCheckpointContent(
                     checkpointObjectID: checkpoint.objectID
                 )
-                let file = try JSONDecoder().decode(ExcalidrawFile.self, from: content)
+                // Decode off the main actor; this task inherits it from the view.
+                let file = try await Task.detached(priority: .utility) {
+                    try JSONDecoder().decode(ExcalidrawFile.self, from: content)
+                }.value
                 await MainActor.run {
                     self.fileSize = content.count
                     self.excalidrawFile = file

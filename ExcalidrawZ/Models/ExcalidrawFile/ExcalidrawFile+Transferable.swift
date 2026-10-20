@@ -15,12 +15,17 @@ extension ExcalidrawFile: Transferable {
         
         let fileExtension = "excalidraw"
         
-        let filename = (self.name ?? String(localizable: .newFileNamePlaceholder)) + ".\(fileExtension)"
+        // "/" or ":" in a drawing name would name a missing folder, and a failed
+        // createFile went unnoticed, sharing a file that did not exist.
+        let baseName = (self.name ?? String(localizable: .newFileNamePlaceholder))
+            .components(separatedBy: CharacterSet(charactersIn: "/:"))
+            .joined(separator: "-")
+        let filename = (baseName.isEmpty ? String(localizable: .newFileNamePlaceholder) : baseName) + ".\(fileExtension)"
         let url = directory.appendingPathComponent(filename, conformingTo: .fileURL)
-        if fileManager.fileExists(atPath: url.absoluteString) {
+        if fileManager.fileExists(atPath: url.path) {
             try fileManager.removeItem(at: url)
         }
-        fileManager.createFile(atPath: url.filePath, contents: self.content)
+        try (self.content ?? Data()).write(to: url, options: .atomic)
         return url
     }
     

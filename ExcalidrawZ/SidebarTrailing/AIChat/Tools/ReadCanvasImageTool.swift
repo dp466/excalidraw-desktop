@@ -221,7 +221,7 @@ private extension ReadCanvasImageTool {
         guard let width, let height else {
             return "unknown"
         }
-        return "\(Int(width))x\(Int(height))"
+        return "\(MCPJSONValue.integerText(width.rounded(.towardZero)))x\(MCPJSONValue.integerText(height.rounded(.towardZero)))"
     }
 }
 

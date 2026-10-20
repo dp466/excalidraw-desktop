@@ -1797,7 +1797,10 @@ final class ExcalidrawMCPAppBridge {
 }
 
 extension ExcalidrawMCPAppBridge {
+    // ISO8601DateFormatter is thread-safe; file listings format up to 200 dates.
+    private static let iso8601Formatter = ISO8601DateFormatter()
+
     nonisolated static func iso8601String(from date: Date) -> String {
-        ISO8601DateFormatter().string(from: date)
+        iso8601Formatter.string(from: date)
     }
 }

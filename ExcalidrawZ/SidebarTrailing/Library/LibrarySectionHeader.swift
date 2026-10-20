@@ -21,6 +21,7 @@ struct LibrarySectionHeader: View {
     @State private var isEditLibrarySheetPresented: Bool = false
     @State private var isRemoveLibraryConfimationPresented: Bool = false
     @State private var isFileExporterPresented: Bool = false
+    @State private var exportDocument = ExcalidrawlibFile(data: nil)
 
     @State private var nameID: TimeInterval = .zero
     
@@ -70,10 +71,7 @@ struct LibrarySectionHeader: View {
         }
         .fileExporter(
             isPresented: $isFileExporterPresented,
-            document: ExcalidrawlibFile(
-                data: try? JSONEncoder().encode(ExcalidrawLibrary(library: library)),
-                filename: library.name
-            ),
+            document: exportDocument,
             contentType: .excalidrawlibFile,
             defaultFilename: library.name
         ) { result in
@@ -125,6 +123,11 @@ struct LibrarySectionHeader: View {
         Divider()
         
         Button {
+            // Encode on demand, not in every header's body.
+            exportDocument = ExcalidrawlibFile(
+                data: try? JSONEncoder().encode(ExcalidrawLibrary(library: library)),
+                filename: library.name
+            )
             isFileExporterPresented.toggle()
         } label: {
             Label(.localizable(.librariesButtonExportLibrary), systemSymbol: .squareAndArrowUp)

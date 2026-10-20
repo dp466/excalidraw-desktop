@@ -42,6 +42,9 @@ struct LibraryView: View {
     @State private var isRemoveAllConfirmationPresented: Bool = false
     @State private var isRemoveSelectionsConfirmationPresented: Bool = false
     @State private var isFileExporterPresented: Bool = false
+    /// Built when Export is chosen: encoding every library in `body` decoded
+    /// and re-encoded all library items on every view update.
+    @State private var exportDocuments: [ExcalidrawlibFile] = []
     
     @State private var inSelectionMode: Bool = false
     @State private var selectedItems = Set<LibraryItem>()
@@ -142,9 +145,7 @@ struct LibraryView: View {
         }
         .fileExporter(
             isPresented: $isFileExporterPresented,
-            documents: libraries.compactMap{
-                (try? JSONEncoder().encode(ExcalidrawLibrary(library: $0)), $0.name)
-            }.map{ ExcalidrawlibFile(data: $0.0, filename: $0.1) },
+            documents: exportDocuments,
             contentType: .excalidrawlibFile
         ) { result in
             switch result {
@@ -537,6 +538,12 @@ struct LibraryView: View {
             importButton()
             
             Button {
+                exportDocuments = libraries.map {
+                    ExcalidrawlibFile(
+                        data: try? JSONEncoder().encode(ExcalidrawLibrary(library: $0)),
+                        filename: $0.name
+                    )
+                }
                 isFileExporterPresented.toggle()
             } label: {
                 Label(.localizable(.librariesButtonExportAll), systemSymbol: .squareAndArrowUp)

@@ -95,11 +95,15 @@ struct SearchResultsProvider: View {
     @State private var searchResults: [FileState.ActiveFile] = []
         
     @State private var isSearching = false
+    @State private var needsAnotherSearch = false
     
     var body: some View {
         content(searchResults)
             .onChange(of: searchText, initial: true, throttle: 0.5, latest: true) { newValue in
-                guard !isSearching else { return }
+                guard !isSearching else {
+                    needsAnotherSearch = true
+                    return
+                }
                 fetchFiles()
             }
     }
@@ -111,7 +115,7 @@ struct SearchResultsProvider: View {
                 try await viewContext.perform {
                     let fileFetchRequest = NSFetchRequest<File>(entityName: "File")
                     if !searchText.isEmpty {
-                        fileFetchRequest.predicate = NSPredicate(format: "name contains %@", searchText)
+                        fileFetchRequest.predicate = NSPredicate(format: "name CONTAINS[cd] %@", searchText)
                     }
                     let searchFiles = try viewContext.fetch(fileFetchRequest)
                     
@@ -125,7 +129,10 @@ struct SearchResultsProvider: View {
                                 .filter({$0.pathExtension == "excalidraw"})
                                 .filter({
                                     searchText.isEmpty ||
-                                    $0.deletingPathExtension().lastPathComponent.contains(searchText)
+                                    $0.deletingPathExtension().lastPathComponent.range(
+                                        of: searchText,
+                                        options: [.caseInsensitive, .diacriticInsensitive]
+                                    ) != nil
                                 })
                         }
                         searchLocalFiles.append(contentsOf: localFiles)
@@ -133,7 +140,7 @@ struct SearchResultsProvider: View {
                     
                     let collaborationFilesFetchRequest = NSFetchRequest<CollaborationFile>(entityName: "CollaborationFile")
                     if !searchText.isEmpty {
-                        collaborationFilesFetchRequest.predicate = NSPredicate(format: "name contains %@", searchText)
+                        collaborationFilesFetchRequest.predicate = NSPredicate(format: "name CONTAINS[cd] %@", searchText)
                     }
                     let searchCollaborationFiles = try viewContext.fetch(collaborationFilesFetchRequest)
                     
@@ -153,6 +160,11 @@ struct SearchResultsProvider: View {
                 alertToast(error)
             }
             isSearching = false
+            // The query may have changed while this search ran.
+            if needsAnotherSearch {
+                needsAnotherSearch = false
+                fetchFiles()
+            }
         }
     }
 }
@@ -191,8 +203,12 @@ struct SerachContent: View {
     @State private var searchLocalFiles: [URL] = []
     
     @State private var isSearching = false
+    @State private var needsAnotherSearch = false
     
     @State private var selectionIndex: Int?
+#if canImport(AppKit)
+    @State private var keyMonitor: Any?
+#endif
     
     @FocusState private var isFocused: Bool
 #if os(iOS)
@@ -267,12 +283,17 @@ struct SerachContent: View {
             }
         }
         .onChange(of: searchText, initial: true, throttle: 0.5, latest: true) { newValue in
-            guard !isSearching else { return }
+            guard !isSearching else {
+                needsAnotherSearch = true
+                return
+            }
             fetchFiles()
         }
 #if canImport(AppKit)
         .onAppear {
-            NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { nsevent in
+            // Opening search repeatedly must not stack app-wide key monitors.
+            if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { nsevent in
                 let maxIndex = searchFiles.count + searchCollaborationFiles.count + searchLocalFiles.count - 1
                 if nsevent.keyCode == 125 { // arrow down
                     selectionIndex = min(maxIndex, (selectionIndex ?? -1) + 1)
@@ -291,6 +312,10 @@ struct SerachContent: View {
         .onDisappear {
             selectionIndex = nil
             isSearching = false
+#if canImport(AppKit)
+            if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
+            keyMonitor = nil
+#endif
         }
     }
     
@@ -448,7 +473,7 @@ struct SerachContent: View {
                 try await viewContext.perform {
                     let fileFetchRequest = NSFetchRequest<File>(entityName: "File")
                     if !searchText.isEmpty {
-                        fileFetchRequest.predicate = NSPredicate(format: "name contains %@", searchText)
+                        fileFetchRequest.predicate = NSPredicate(format: "name CONTAINS[cd] %@", searchText)
                     }
                     let searchFiles = try viewContext.fetch(fileFetchRequest)
                     
@@ -462,7 +487,10 @@ struct SerachContent: View {
                                 .filter({$0.pathExtension == "excalidraw"})
                                 .filter({
                                     searchText.isEmpty ||
-                                    $0.deletingPathExtension().lastPathComponent.contains(searchText)
+                                    $0.deletingPathExtension().lastPathComponent.range(
+                                        of: searchText,
+                                        options: [.caseInsensitive, .diacriticInsensitive]
+                                    ) != nil
                                 })
                         }
                         searchLocalFiles.append(contentsOf: localFiles)
@@ -470,7 +498,7 @@ struct SerachContent: View {
                     
                     let collaborationFilesFetchRequest = NSFetchRequest<CollaborationFile>(entityName: "CollaborationFile")
                     if !searchText.isEmpty {
-                        collaborationFilesFetchRequest.predicate = NSPredicate(format: "name contains %@", searchText)
+                        collaborationFilesFetchRequest.predicate = NSPredicate(format: "name CONTAINS[cd] %@", searchText)
                     }
                     let searchCollaborationFiles = try viewContext.fetch(collaborationFilesFetchRequest)
                     
@@ -486,6 +514,11 @@ struct SerachContent: View {
                 alertToast(error)
             }
             isSearching = false
+            // The query may have changed while this search ran.
+            if needsAnotherSearch {
+                needsAnotherSearch = false
+                fetchFiles()
+            }
         }
     }
     

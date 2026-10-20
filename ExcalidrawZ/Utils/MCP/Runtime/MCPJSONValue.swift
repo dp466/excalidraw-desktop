@@ -221,3 +221,19 @@ private struct DynamicCodingKey: CodingKey {
         self.intValue = intValue
     }
 }
+
+extension MCPJSONValue {
+    /// `Int(_: Double)` traps outside Int's range, and MCP clients may send any
+    /// finite JSON number, such as 1e20.
+    static func integerText(_ number: Double) -> String {
+        if number.rounded(.towardZero) == number, abs(number) < 9_007_199_254_740_992 {
+            return String(Int(number))
+        }
+        return String(number)
+    }
+
+    static func clampedInteger(_ number: Double?, default fallback: Int, in range: ClosedRange<Int>) -> Int {
+        guard let number, number.isFinite else { return fallback }
+        return Int(min(max(number.rounded(.towardZero), Double(range.lowerBound)), Double(range.upperBound)))
+    }
+}

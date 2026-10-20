@@ -19,6 +19,23 @@ private struct BackupFilePreview {
     let file: ExcalidrawFile
 }
 
+/// What the selected backup file is, read once when it is selected rather than
+/// on every view update.
+private enum BackupFileKind {
+    case plain(ExcalidrawFile)
+    case appEncrypted
+    case recoveryKeyEncrypted
+    case unreadable
+
+    static func classify(_ url: URL) -> BackupFileKind {
+        guard let data = try? Data(contentsOf: url) else { return .unreadable }
+        if EncryptedBackupService.isEncryptedEnvelope(data) { return .appEncrypted }
+        if EncryptedContentService.isEncryptedEnvelope(data) { return .recoveryKeyEncrypted }
+        if let file = try? ExcalidrawFile(contentsOf: url) { return .plain(file) }
+        return .unreadable
+    }
+}
+
 struct BackupsSettingsView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @Environment(\.alertToast) var alertToast
@@ -31,6 +48,7 @@ struct BackupsSettingsView: View {
     @State private var selectedBackupDirs: [String : [URL]] = [:]
     
     @State private var selectedFile: URL?
+    @State private var selectedFileKind: (url: URL, kind: BackupFileKind)?
     
     @State private var backupToBeDeleted: URL?
     @State private var isExportingBackup = false
@@ -93,14 +111,21 @@ struct BackupsSettingsView: View {
                     if let unlockedBackupPreview,
                        unlockedBackupPreview.url == selectedFile {
                         ExcalidrawRenderer(file: unlockedBackupPreview.file)
-                    } else if let excalidrawFile = try? ExcalidrawFile(contentsOf: selectedFile) {
-                        ExcalidrawRenderer(file: excalidrawFile)
-                    } else if isAppEncryptedBackupFile(selectedFile) {
-                        backupEncryptedPreviewLoadingView()
-                    } else if isRecoveryKeyEncryptedBackupFile(selectedFile) {
-                        encryptedBackupFileView(selectedFile)
-                    } else if let selectedBackup {
-                        backupHomeView(selectedBackup)
+                    } else if let selectedFileKind, selectedFileKind.url == selectedFile {
+                        switch selectedFileKind.kind {
+                            case .plain(let excalidrawFile):
+                                ExcalidrawRenderer(file: excalidrawFile)
+                            case .appEncrypted:
+                                backupEncryptedPreviewLoadingView()
+                            case .recoveryKeyEncrypted:
+                                encryptedBackupFileView(selectedFile)
+                            case .unreadable:
+                                if let selectedBackup {
+                                    backupHomeView(selectedBackup)
+                                }
+                        }
+                    } else {
+                        ProgressView()
                     }
                 } else if let selectedBackup {
                     backupHomeView(selectedBackup)
@@ -114,14 +139,21 @@ struct BackupsSettingsView: View {
             unlockedBackupPreview = nil
             backupPreviewErrorMessage = nil
             isBackupPreviewRecoveryKeySheetPresented = false
+            selectedFileKind = nil
             guard let newValue else { return }
-            if isAppEncryptedBackupFile(newValue) {
-                Task {
-                    await loadBackupPreviewWithBackupKey(newValue)
-                }
-            } else if isRecoveryKeyEncryptedBackupFile(newValue) {
-                Task {
-                    await unlockBackupPreviewWithSystemAuthentication(newValue, isAutomatic: true)
+            Task { @MainActor in
+                let kind = await Task.detached(priority: .userInitiated) {
+                    BackupFileKind.classify(newValue)
+                }.value
+                guard selectedFile == newValue else { return }
+                selectedFileKind = (newValue, kind)
+                switch kind {
+                    case .appEncrypted:
+                        await loadBackupPreviewWithBackupKey(newValue)
+                    case .recoveryKeyEncrypted:
+                        await unlockBackupPreviewWithSystemAuthentication(newValue, isAutomatic: true)
+                    case .plain, .unreadable:
+                        break
                 }
             }
         }

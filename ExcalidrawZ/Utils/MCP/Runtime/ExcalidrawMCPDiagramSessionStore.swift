@@ -35,6 +35,10 @@ actor ExcalidrawMCPDiagramSessionStore {
     typealias UpdateHandler = @Sendable (ExcalidrawMCPDiagramSession) async throws -> Void
 
     private var checkpoints: [String: ExcalidrawMCPCheckpoint] = [:]
+    /// Checkpoint ids, oldest first. Every view update stores a full element
+    /// array (save_checkpoint up to the input limit), so keep only the newest.
+    private var checkpointOrder: [String] = []
+    static let maximumCheckpointCount = 64
     private var currentSession: ExcalidrawMCPDiagramSession?
     private var updateHandler: UpdateHandler?
 
@@ -63,7 +67,7 @@ actor ExcalidrawMCPDiagramSessionStore {
                 "elements": .array(sanitizedElements)
             ])
         )
-        checkpoints[checkpoint.id] = checkpoint
+        store(checkpoint)
         return checkpoint
     }
 
@@ -77,7 +81,7 @@ actor ExcalidrawMCPDiagramSessionStore {
             createdAt: Date(),
             data: data
         )
-        checkpoints[checkpoint.id] = checkpoint
+        store(checkpoint)
         return checkpoint
     }
 
@@ -105,6 +109,15 @@ actor ExcalidrawMCPDiagramSessionStore {
         }
         currentSession = session
         return session
+    }
+
+    private func store(_ checkpoint: ExcalidrawMCPCheckpoint) {
+        checkpoints[checkpoint.id] = checkpoint
+        checkpointOrder.removeAll { $0 == checkpoint.id }
+        checkpointOrder.append(checkpoint.id)
+        while checkpointOrder.count > Self.maximumCheckpointCount {
+            checkpoints.removeValue(forKey: checkpointOrder.removeFirst())
+        }
     }
 
     private static func makeCheckpointID() -> String {

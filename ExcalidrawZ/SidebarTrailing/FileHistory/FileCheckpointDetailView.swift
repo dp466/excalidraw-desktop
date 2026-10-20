@@ -17,7 +17,7 @@ struct FileCheckpointDetailView<Checkpoint: FileCheckpointRepresentable>: View {
 
     var checkpoint: Checkpoint
 
-    @State private var loadedContent: Data?
+    @State private var loadedFile: ExcalidrawFile?
     @State private var isRecoverAlertPresented = false
 
     init(checkpoint: Checkpoint) {
@@ -27,9 +27,7 @@ struct FileCheckpointDetailView<Checkpoint: FileCheckpointRepresentable>: View {
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
-                if let data = loadedContent,
-                   let file = try? ExcalidrawFile(data: data, id: checkpoint.fileID),
-                   !file.elements.isEmpty {
+                if let file = loadedFile, !file.elements.isEmpty {
                      ExcalidrawRenderer(file: file)
                 } else {
                     if colorScheme == .light {
@@ -100,13 +98,19 @@ struct FileCheckpointDetailView<Checkpoint: FileCheckpointRepresentable>: View {
             .padding(20)
         }
         .task {
-            // Load checkpoint content asynchronously
+            // Load and decode once, off the main actor, instead of in `body`.
+            let content: Data?
             if let fileCheckpoint = checkpoint as? FileCheckpoint {
-                loadedContent = try? await fileCheckpoint.loadContent()
+                content = try? await fileCheckpoint.loadContent()
             } else {
                 // Fallback for non-FileCheckpoint types (like CollaborationFileCheckpoint)
-                loadedContent = checkpoint.content
+                content = checkpoint.content
             }
+            guard let content else { return }
+            let fileID = checkpoint.fileID
+            loadedFile = await Task.detached(priority: .userInitiated) {
+                try? ExcalidrawFile(data: content, id: fileID)
+            }.value
         }
         .alert(
             String(localizable: .deletedFileRecoverAlertTitle),

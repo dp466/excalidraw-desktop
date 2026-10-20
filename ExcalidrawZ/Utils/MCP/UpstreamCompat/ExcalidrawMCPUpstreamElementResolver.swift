@@ -183,9 +183,7 @@ struct ExcalidrawMCPUpstreamElementResolver {
             case .string(let string):
                 return string
             case .number(let number) where number.isFinite:
-                return number.rounded(.towardZero) == number
-                    ? String(Int(number))
-                    : String(number)
+                return MCPJSONValue.integerText(number)
             default:
                 return nil
         }

@@ -16,7 +16,7 @@ struct FileCheckpointRowView<Checkpoint: FileCheckpointRepresentable>: View {
     @ObservedObject var checkpoint: Checkpoint
     var presentsDetail = true
     
-    @State private var file: ExcalidrawFile?
+    @State private var visibleElementCount: Int?
     @State private var fileSize: Int = 0
     
     var body: some View {
@@ -24,10 +24,14 @@ struct FileCheckpointRowView<Checkpoint: FileCheckpointRepresentable>: View {
             .task(id: checkpointMetadataLoadID, priority: .background) {
                 do {
                     let content = try await loadContent(for: checkpoint)
-                    let file = try? JSONDecoder().decode(ExcalidrawFile.self, from: content)
+                    // Rows show only the size and visible element count. Count
+                    // off the main actor and keep no decoded document per row.
+                    let count = await Task.detached(priority: .utility) {
+                        FileCheckpointElementCounter.visibleElementCount(in: content)
+                    }.value
                     await MainActor.run {
                         self.fileSize = content.count
-                        self.file = file
+                        self.visibleElementCount = count
                     }
                 } catch {
                     fileCheckpointRowLogger.warning("Failed to load checkpoint metadata: \(error)")
@@ -82,8 +86,7 @@ struct FileCheckpointRowView<Checkpoint: FileCheckpointRepresentable>: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 0) {
-                        if let file {
-                            let elementCount = file.elements.filter { !$0.isDeleted }.count
+                        if let elementCount = visibleElementCount {
                             if #available(macOS 13.0, iOS 16.0, *) {
                                 Text(.localizable(.checkpointsElementsDescription(elementCount)))
                             } else {
@@ -313,3 +316,13 @@ private extension PrimitiveButtonStyle where Self == FileCheckpointRowButtonStyl
         .environmentObject(FileState())
 }
 #endif
+
+enum FileCheckpointElementCounter {
+    private struct Element: Decodable { var isDeleted: Bool? }
+    private struct Document: Decodable { var elements: [Element] }
+
+    static func visibleElementCount(in content: Data) -> Int? {
+        guard let document = try? JSONDecoder().decode(Document.self, from: content) else { return nil }
+        return document.elements.filter { $0.isDeleted != true }.count
+    }
+}

@@ -4,6 +4,18 @@ This changelog covers the ExcalidrawDesktop fork. Historical ExcalidrawZ release
 
 ## Unreleased
 
+### Local build 140
+
+- Fixed crashes:
+  - importing several files when no group is selected;
+  - MCP tool calls with very large numbers (list_local_files `limit`, delete ids, camera sizes, adjust_elements `fontFamily`, canvas image sizes);
+  - importing a library whose version number is out of range.
+- Imported drawings no longer store embedded images twice. Importing several files now handles `.excalidraw.png`/`.excalidraw.svg` instead of storing image bytes as a broken drawing.
+- MCP no longer accumulates memory or disk without limit: diagram checkpoints keep the newest 64 and request receipts the newest 256. Tool results attach only files the tools wrote to the temporary folder.
+- Keyboard: Backspace anywhere in the app no longer removes the fonts selected in Fonts settings. Opening search no longer leaves a key monitor behind each time. Search ignores case and accents and no longer drops the last text typed during a search.
+- PNG exports and shared/dragged drawings whose names contain "/" or ":" now produce a file.
+- Faster panels: File History rows no longer decode every checkpoint on the main thread (840 KB drawing: 32 → 3.8 ms per row, in the background). The backup browser and checkpoint preview decode their file once instead of on every view update. The library panel no longer re-encodes every library on each view update.
+
 ### Local build 139
 
 - Quitting no longer hangs on a Keychain prompt. After a rebuild, macOS asks before the app can read its backup key, and the quit-time backup waited for that answer indefinitely (seen as a quit that never finishes). Drawings and app data are saved first; the backup now gets at most 20 seconds, and the key is read once per launch instead of once per backed-up file.

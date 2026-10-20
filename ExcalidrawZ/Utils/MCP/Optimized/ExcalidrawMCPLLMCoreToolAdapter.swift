@@ -264,17 +264,29 @@ struct ExcalidrawMCPLLMCoreToolAdapter: Sendable {
     }
 
     private static func localFileURL(from value: String) -> URL? {
-        if let url = URL(string: value), url.isFileURL {
-            return url
+        let url: URL
+        if let parsed = URL(string: value), parsed.isFileURL {
+            url = parsed
+        } else if value.hasPrefix("/") {
+            url = URL(fileURLWithPath: value)
+        } else {
+            return nil
         }
-        if value.hasPrefix("/") {
-            return URL(fileURLWithPath: value)
-        }
-        return nil
+        return isToolArtifact(url) ? url : nil
+    }
+
+    /// Tool outputs are JSON that can echo document data. Attach only files the
+    /// tools wrote to the temporary directory, never another local path.
+    static func isToolArtifact(_ url: URL) -> Bool {
+        let root = FileManager.default.temporaryDirectory
+            .resolvingSymlinksInPath().standardizedFileURL.path
+        let path = url.resolvingSymlinksInPath().standardizedFileURL.path
+        return path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
     }
 
     private static func imageContent(from url: URL) -> [ExcalidrawMCPToolResult.Content]? {
         guard url.isFileURL,
+              isToolArtifact(url),
               let data = try? Data(contentsOf: url) else {
             return nil
         }

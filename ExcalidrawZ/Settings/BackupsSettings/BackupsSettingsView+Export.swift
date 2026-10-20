@@ -9,16 +9,6 @@ import CoreData
 import Foundation
 
 #if os(macOS)
-func isAppEncryptedBackupFile(_ url: URL) -> Bool {
-    guard let data = try? Data(contentsOf: url) else { return false }
-    return EncryptedBackupService.isEncryptedEnvelope(data)
-}
-
-func isRecoveryKeyEncryptedBackupFile(_ url: URL) -> Bool {
-    guard let data = try? Data(contentsOf: url) else { return false }
-    return EncryptedContentService.isEncryptedEnvelope(data)
-}
-
 func backupContainsEncryptedExcalidrawFiles(_ backup: URL) throws -> Bool {
     try backupDirectoryContainsEncryptedExcalidrawFiles(backup)
 }

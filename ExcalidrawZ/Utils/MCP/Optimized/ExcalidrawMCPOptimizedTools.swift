@@ -469,7 +469,7 @@ struct ExcalidrawMCPOptimizedToolHandler {
         let files = try await listLocalFiles(
             arguments["local_folder_id"]?.stringValue,
             arguments["deep"]?.boolValue ?? true,
-            min(max(Int(arguments["limit"]?.numberValue ?? 100), 1), 200)
+            MCPJSONValue.clampedInteger(arguments["limit"]?.numberValue, default: 100, in: 1...200)
         )
         return try jsonToolResult(
             value: files,

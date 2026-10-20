@@ -193,9 +193,6 @@ struct ExcalidrawMCPUpstreamToolHandler {
     }
 
     private static func displayNumber(_ number: Double) -> String {
-        if number.rounded(.towardZero) == number {
-            return String(Int(number))
-        }
-        return String(number)
+        MCPJSONValue.integerText(number)
     }
 }

@@ -57,7 +57,7 @@ extension AdjustElementsMiddleware {
                     item.fontSize = fontSize
                 }
                 if let fontFamily = stylePatch.fontFamily {
-                    item.fontFamily = .int(Int(fontFamily))
+                    item.fontFamily = .int(AdjustElementsTool.fontFamilyID(fontFamily))
                 }
                 if let textAlign = parseTextAlign(stylePatch.textAlign) {
                     item.textAlign = textAlign

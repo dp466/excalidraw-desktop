@@ -342,7 +342,7 @@ struct ExcalidrawLibraryImportSheetView: View {
                     library.createdAt = Date()
                     library.name = libraryData.name
                     library.source = libraryData.source
-                    library.version = Int32(libraryData.version)
+                    library.version = Int32(clamping: libraryData.version)
                     library.items = []
                     
                     for item in selection[libraryData] ?? [] {

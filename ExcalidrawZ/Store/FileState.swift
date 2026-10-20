@@ -2084,18 +2084,18 @@ final class FileState: ObservableObject {
         } else if urls.count > 1 {
             // select multiple files or folders
             // folders will be created as group, files will be imported to `default` group.
-            // Prepare file data outside context.perform
-            var fileDataPairs: [(URL, Data)] = []
+            // Decode every file first: PNG/SVG scenes need their decoder, and a
+            // file that cannot be read must not leave a partial import behind.
+            var decodedFiles: [(URL, ExcalidrawFile)] = []
             for fileURL in urls.filter({!FileManager.default.isDirectory($0)}) {
                 let scoped = fileURL.startAccessingSecurityScopedResource()
                 defer { if scoped { fileURL.stopAccessingSecurityScopedResource() } }
-                let data = try Data(contentsOf: fileURL, options: .uncached)
-                fileDataPairs.append((fileURL, data))
+                decodedFiles.append((fileURL, try ExcalidrawFile(contentsOf: fileURL)))
             }
             
             // Get target group ID
             let targetGroupID = try await context.perform {
-                let fetchRequest = NSFetchRequest<Group>()
+                let fetchRequest = NSFetchRequest<Group>(entityName: "Group")
                 fetchRequest.predicate = NSPredicate(format: "type == %@", "default")
                 var group: Group?
                 let currentGroup: Group? = if let crrentGroupID {
@@ -2114,11 +2114,15 @@ final class FileState: ObservableObject {
             }
             
             // Create files through repository (creates entities and saves to iCloud Drive)
-            for (fileURL, data) in fileDataPairs {
-                _ = try await PersistenceController.shared.fileRepository.createFile(
-                    name: fileURL.deletingPathExtension().lastPathComponent,
-                    content: data,
-                    groupObjectID: targetGroupID
+            var importedMediaIDs = Set<String>()
+            let existingMediaIDs = try await MediaItem.existingIDs(among: nil, context: context)
+            for (fileURL, excalidrawFile) in decodedFiles {
+                try await importDecodedFile(
+                    excalidrawFile,
+                    name: Self.importedFileName(for: fileURL),
+                    groupID: targetGroupID,
+                    existingMediaIDs: existingMediaIDs,
+                    importedMediaIDs: &importedMediaIDs
                 )
             }
             
@@ -2137,6 +2141,43 @@ final class FileState: ObservableObject {
         }
     }
     
+    /// Stores one decoded drawing in a group. Embedded images become MediaItems,
+    /// as in single-file import, instead of also staying inline in the content.
+    private func importDecodedFile(
+        _ excalidrawFile: ExcalidrawFile,
+        name: String,
+        groupID: NSManagedObjectID,
+        existingMediaIDs: Set<String>,
+        importedMediaIDs: inout Set<String>
+    ) async throws {
+        let fileID = try await PersistenceController.shared.fileRepository.createFile(
+            name: name,
+            content: try excalidrawFile.contentWithoutFiles(),
+            groupObjectID: groupID
+        )
+        let mediasToImport = excalidrawFile.files.values.filter { item in
+            !importedMediaIDs.contains(item.id) && !existingMediaIDs.contains(item.id)
+        }
+        guard !mediasToImport.isEmpty else { return }
+        _ = try await PersistenceController.shared.mediaItemRepository.createMediaItems(
+            resources: Array(mediasToImport),
+            fileObjectID: fileID
+        )
+        mediasToImport.forEach { importedMediaIDs.insert($0.id) }
+        Task {
+            try? await self.excalidrawWebCoordinator?.insertMediaFiles(Array(mediasToImport))
+        }
+    }
+
+    /// "Plan.excalidraw.png" -> "Plan".
+    static func importedFileName(for url: URL) -> String {
+        var name = url.deletingPathExtension().lastPathComponent
+        if name.lowercased().hasSuffix(".excalidraw") {
+            name = String(name.dropLast(".excalidraw".count))
+        }
+        return name
+    }
+
     /// Import a folder as a group.
     private func importGroup(
         url: URL,
@@ -2174,36 +2215,13 @@ final class FileState: ObservableObject {
         
         // files
         for fileURL in urls where fileURL.pathExtension == UTType.excalidrawFile.preferredFilenameExtension  {
-            let excalidrawFile = try ExcalidrawFile(contentsOf: fileURL)
-            let data = try Data(contentsOf: fileURL, options: .uncached)
-            
-            // Create file through repository (creates entity and saves to iCloud Drive)
-            let fileID = try await PersistenceController.shared.fileRepository.createFile(
+            try await importDecodedFile(
+                try ExcalidrawFile(contentsOf: fileURL),
                 name: fileURL.deletingPathExtension().lastPathComponent,
-                content: data,
-                groupObjectID: groupID
+                groupID: groupID,
+                existingMediaIDs: allMediaItemIDs,
+                importedMediaIDs: &insertedMediaID
             )
-            
-            // Import medias
-            let mediasToImport = excalidrawFile.files.values.filter { item in
-                !insertedMediaID.contains(item.id) &&
-                !allMediaItemIDs.contains(item.id)
-            }
-            
-            if !mediasToImport.isEmpty {
-                // Create media items through repository (creates entities and saves to iCloud Drive)
-                _ = try await PersistenceController.shared.mediaItemRepository.createMediaItems(
-                    resources: Array(mediasToImport),
-                    fileObjectID: fileID
-                )
-                
-                // Mark as inserted to avoid duplicates in next iterations
-                mediasToImport.forEach { insertedMediaID.insert($0.id) }
-                
-                Task {
-                    try? await self.excalidrawWebCoordinator?.insertMediaFiles(Array(mediasToImport))
-                }
-            }
         }
         
         // folders

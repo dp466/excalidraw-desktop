@@ -9,7 +9,13 @@ actor ExcalidrawMCPDiagramCommandService {
     private struct Receipt: Codable, Sendable {
         let fingerprint: String
         var result: MCPJSONValue?
+        /// Absent in receipts written before build 140; those are trimmed first.
+        var createdAt: Date? = nil
     }
+    /// Every mutation stores its full result (images included) and the whole
+    /// file is rewritten twice per call. Request IDs protect retries, which
+    /// follow shortly after the original call; keep the newest receipts only.
+    static let maximumReceiptCount = 256
     private var receipts: [String: Receipt] = [:]
     private var didLoadReceipts = false
     private let receiptURL: URL
@@ -37,6 +43,16 @@ actor ExcalidrawMCPDiagramCommandService {
                                                 attributes: [.posixPermissions: 0o700])
         try JSONEncoder().encode(receipts).write(to: receiptURL, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: receiptURL.path)
+    }
+
+    private func trimReceipts(keeping key: String) {
+        let excess = receipts.count - Self.maximumReceiptCount
+        guard excess > 0 else { return }
+        let oldest = receipts
+            .filter { $0.key != key }
+            .sorted { ($0.value.createdAt ?? .distantPast) < ($1.value.createdAt ?? .distantPast) }
+            .prefix(excess)
+        for (staleKey, _) in oldest { receipts.removeValue(forKey: staleKey) }
     }
 
     func performExclusive<T: Sendable>(
@@ -88,7 +104,8 @@ actor ExcalidrawMCPDiagramCommandService {
                 return Self.replay(result)
             }
             if let key {
-                receipts[key] = Receipt(fingerprint: fingerprint, result: nil)
+                receipts[key] = Receipt(fingerprint: fingerprint, result: nil, createdAt: Date())
+                trimReceipts(keeping: key)
                 do { try persistReceipts() }
                 catch { receipts.removeValue(forKey: key); throw error }
             }
@@ -107,7 +124,7 @@ actor ExcalidrawMCPDiagramCommandService {
         // Record errors too: changing arguments always requires a new request ID.
         // A write-ahead pending receipt prevents replay after a process crash.
         if mutating && !dryRun, let key {
-            receipts[key] = Receipt(fingerprint: fingerprint, result: result.jsonValue)
+            receipts[key] = Receipt(fingerprint: fingerprint, result: result.jsonValue, createdAt: receipts[key]?.createdAt ?? Date())
             do { try persistReceipts() }
             catch {
                 // Keep the result in memory. The disk's pending marker still blocks

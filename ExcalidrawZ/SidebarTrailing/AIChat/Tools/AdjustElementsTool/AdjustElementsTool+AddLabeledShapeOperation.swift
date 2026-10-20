@@ -103,7 +103,7 @@ extension AdjustElementsMiddleware {
             locked: false,
             customData: nil,
             fontSize: fontSize,
-            fontFamily: .int(Int(style.fontFamily ?? 5)),
+            fontFamily: .int(AdjustElementsTool.fontFamilyID(style.fontFamily)),
             text: text,
             textAlign: .center,
             verticalAlign: .middle,
