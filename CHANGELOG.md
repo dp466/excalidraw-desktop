@@ -4,6 +4,10 @@ This changelog covers the ExcalidrawDesktop fork. Historical ExcalidrawZ release
 
 ## Unreleased
 
+### Local build 139
+
+- Quitting no longer hangs on a Keychain prompt. After a rebuild, macOS asks before the app can read its backup key, and the quit-time backup waited for that answer indefinitely (seen as a quit that never finishes). Drawings and app data are saved first; the backup now gets at most 20 seconds, and the key is read once per launch instead of once per backed-up file.
+
 ### Local build 138
 
 - Inserting a screen annotation into the drawing open in the editor no longer gets erased: the editor kept the old scene and wrote it back when you left the drawing. The open editor now reloads the saved document.

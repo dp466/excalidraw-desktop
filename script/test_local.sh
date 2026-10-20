@@ -40,6 +40,7 @@ xcodebuild -project "$SOURCE_ROOT/ExcalidrawZ.xcodeproj" -scheme ExcalidrawZ -co
   -only-testing:ExcalidrawZTests/LocalAutosaveRecoveryStoreTests \
   -only-testing:ExcalidrawZTests/EditorServerContainmentTests \
   -only-testing:ExcalidrawZTests/SaveStreamOrderingTests \
+  -only-testing:ExcalidrawZTests/TerminationTimeLimitTests \
   -only-testing:ExcalidrawZTests/ScreenAnnotationOpenTargetTests \
   -only-testing:ExcalidrawZTests/FolderMonitorRenameTests \
   -only-testing:ExcalidrawZTests/LocalCheckpointRetentionTests \

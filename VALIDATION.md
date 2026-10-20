@@ -1,5 +1,17 @@
 # Fork validation
 
+## Build 139: quit blocked by a Keychain prompt (2026-10-20)
+
+- Reproduced while installing 138: Quit on build 137 never finished. A sample
+  showed `_shouldTerminate` waiting on the termination task, whose backup
+  step was blocked in `SecItemCopyMatching` (backup key) under
+  `copyEncryptedBackupItem`; SecurityAgent held an unanswered prompt. The
+  canvas flush and database save stages had completed.
+- `TerminationTimeLimitTests` checks the time limit returns after 0.3 s for a
+  stuck operation and immediately for a finished one.
+- Full `script/test_local.sh` under `caffeinate -du`: **98 XCTest** and
+  **26 Swift Testing** cases passed, plus the plugin and editor suites.
+
 ## Build 138: editor-engine review, data-loss fixes, autosave cost (2026-10-20)
 
 - Each fix has a test that fails on build 137 and passes now:

@@ -230,10 +230,49 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     private func backupFilesBeforeTermination() async {
-        do {
-            try await backupFiles(context: PersistenceController.shared.container.viewContext)
-        } catch {
-            logger.error("Backup before app termination failed: \(error)")
+        // Drawings and app data are already saved. The backup reads its key from
+        // the Keychain, which can wait on an access prompt indefinitely after an
+        // unsigned rebuild; it must not hold quitting open.
+        let finished = await Self.waitAtMost(seconds: Self.terminationBackupTimeLimit) { [logger] in
+            do {
+                try await backupFiles(context: PersistenceController.shared.container.viewContext)
+            } catch {
+                logger.error("Backup before app termination failed: \(error)")
+            }
+        }
+        if !finished {
+            logger.warning("Quitting without waiting further for the termination backup")
+        }
+    }
+
+    static let terminationBackupTimeLimit: TimeInterval = 20
+
+    /// Runs `operation` and returns once it finishes (true) or the time limit
+    /// passes (false). The operation keeps running in the second case.
+    static func waitAtMost(
+        seconds: TimeInterval,
+        _ operation: @escaping @MainActor () async -> Void
+    ) async -> Bool {
+        final class Once: @unchecked Sendable {
+            private let lock = NSLock()
+            private var done = false
+            func claim() -> Bool {
+                lock.lock(); defer { lock.unlock() }
+                guard !done else { return false }
+                done = true
+                return true
+            }
+        }
+        let once = Once()
+        return await withCheckedContinuation { continuation in
+            Task { @MainActor in
+                await operation()
+                if once.claim() { continuation.resume(returning: true) }
+            }
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                if once.claim() { continuation.resume(returning: false) }
+            }
         }
     }
     

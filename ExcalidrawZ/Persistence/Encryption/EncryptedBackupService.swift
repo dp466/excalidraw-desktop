@@ -149,21 +149,36 @@ private enum BackupEncryptionKeyStore {
     private static let account = "InternalBackupMasterKey"
     private static let service = "\(Bundle.main.bundleIdentifier ?? "com.chocoford.ExcalidrawZ").backup-encryption"
 
+    /// The key never changes once created. A backup encrypts every file, and
+    /// each Keychain read can show an access prompt after an unsigned rebuild;
+    /// read it once per launch.
+    private static let cacheLock = NSLock()
+    private static var cachedKeyData: Data?
+
     static func loadOrCreateKeyData() throws -> Data {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        if let cachedKeyData { return cachedKeyData }
         if let existingKeyData = try loadKeyDataIfPresent() {
-            return try validatedKeyData(existingKeyData)
+            cachedKeyData = try validatedKeyData(existingKeyData)
+            return existingKeyData
         }
 
         let keyData = try RecoveryKeyService.randomSalt(byteCount: byteCount)
         try saveKeyData(keyData)
+        cachedKeyData = keyData
         return keyData
     }
 
     static func loadExistingKeyData() throws -> Data {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        if let cachedKeyData { return cachedKeyData }
         guard let existingKeyData = try loadKeyDataIfPresent() else {
             throw EncryptedBackupError.missingKey
         }
-        return try validatedKeyData(existingKeyData)
+        cachedKeyData = try validatedKeyData(existingKeyData)
+        return existingKeyData
     }
 
     private static func validatedKeyData(_ keyData: Data) throws -> Data {
