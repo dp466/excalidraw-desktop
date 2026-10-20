@@ -452,7 +452,11 @@ private struct FileStatusObserverModifier: ViewModifier {
 
         activeFileFallbackProbeTask = Task { @MainActor in
             defer {
-                activeFileFallbackProbeTask = nil
+                // A cancelled probe may already have a replacement; every
+                // cancelling caller clears or replaces the handle itself.
+                if !Task.isCancelled {
+                    activeFileFallbackProbeTask = nil
+                }
             }
 
             while !Task.isCancelled {
@@ -565,7 +569,9 @@ private struct FileStatusObserverModifier: ViewModifier {
 
         remoteMetadataProbeTask = Task { @MainActor in
             defer {
-                remoteMetadataProbeTask = nil
+                if !Task.isCancelled {
+                    remoteMetadataProbeTask = nil
+                }
             }
 
             let probeDelays: [UInt64] = [
@@ -612,7 +618,9 @@ private struct FileStatusObserverModifier: ViewModifier {
         remoteMetadataProbeTask?.cancel()
         remoteMetadataProbeTask = Task { @MainActor in
             defer {
-                remoteMetadataProbeTask = nil
+                if !Task.isCancelled {
+                    remoteMetadataProbeTask = nil
+                }
             }
 
             let retryDelays: [UInt64] = [

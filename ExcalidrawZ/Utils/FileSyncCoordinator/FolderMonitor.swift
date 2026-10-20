@@ -246,9 +246,16 @@ actor MacOSFileSystemMonitor: FileSystemMonitorProtocol {
 
         case .itemRenamed(let path, let itemType, _, _):
             if shouldMonitorFile(path: path, itemType: itemType) {
-                // Note: FSEvents doesn't provide old path for renames
-                // We treat rename as modify for now
-                await onEvent(.modified(URL(fileURLWithPath: path)))
+                // FSEvents reports both ends of a rename without pairing them.
+                // Finder moves and Move to Trash arrive as a rename of the old
+                // path, which no longer exists: report it as deleted so an open
+                // session is closed instead of being recreated by its next save.
+                let url = URL(fileURLWithPath: path)
+                if FileManager.default.fileExists(atPath: path) {
+                    await onEvent(.modified(url))
+                } else {
+                    await onEvent(.deleted(url))
+                }
             }
 
         default:

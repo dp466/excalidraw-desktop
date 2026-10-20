@@ -292,10 +292,37 @@ final class ScreenAnnotationSavePersistence {
                 fileState: fileState,
                 saveID: saveID
             )
+            await self.reloadMainCanvasIfShowing(
+                updatedFile,
+                activeFile: preparedTarget.activeFile,
+                fileState: fileState
+            )
             FileCoverCacheCoordinator.shared.refreshCover(
                 for: preparedTarget.activeFile
             )
         }
+    }
+
+    /// The target may be the drawing open in the main editor. Its canvas still
+    /// holds the scene from before the insert, and its next save (including
+    /// the one when leaving the drawing) would write that scene back over the
+    /// annotation. Load the saved document, as History restore does.
+    private func reloadMainCanvasIfShowing(
+        _ updatedFile: ExcalidrawFile,
+        activeFile: FileState.ActiveFile,
+        fileState: FileState?
+    ) async {
+        guard let fileState,
+              fileState.currentActiveFile?.id == activeFile.id,
+              let coordinator = fileState.excalidrawWebCoordinator,
+              coordinator.documentSyncController.currentLoadedFileID == activeFile.id else {
+            return
+        }
+        await coordinator.loadFile(from: updatedFile, force: true)
+        NotificationCenter.default.post(
+            name: .activeCanvasFileDidRestore,
+            object: updatedFile
+        )
     }
 
     private func injectMediaFilesIntoMainCanvas(

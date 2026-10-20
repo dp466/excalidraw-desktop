@@ -613,15 +613,9 @@ enum CloudStorageCheckpointStore {
         let checkpointURL = reference.checkpointURL
         let context = PersistenceController.shared.container.newBackgroundContext()
         return try await context.perform {
-            let checkpoint = LocalFileCheckpoint(context: context)
-            let checkpointID = UUID()
-            checkpoint.id = checkpointID
-            checkpoint.url = checkpointURL
-            checkpoint.updatedAt = .now
-            checkpoint.content = content
-            checkpoint.source = source.rawValue
-            checkpoint.historyDescription = description
-            context.insert(checkpoint)
+            let checkpointID = try LocalFileCheckpointStore.insertToolCheckpoint(
+                content: content, for: checkpointURL, source: source, description: description, in: context
+            )
             try context.save()
             return checkpointID
         }

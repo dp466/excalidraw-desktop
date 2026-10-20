@@ -144,13 +144,9 @@ extension FileState {
     ) async throws {
         let context = PersistenceController.shared.container.newBackgroundContext()
         try await context.perform {
-            let checkpoint = LocalFileCheckpoint(context: context)
-            checkpoint.id = UUID()
-            checkpoint.url = url
-            checkpoint.updatedAt = .now
-            checkpoint.content = content
-            checkpoint.source = FileCheckpointSource.restorePost.rawValue
-            context.insert(checkpoint)
+            _ = try LocalFileCheckpointStore.insertToolCheckpoint(
+                content: content, for: url, source: .restorePost, description: nil, in: context
+            )
             try context.save()
         }
     }

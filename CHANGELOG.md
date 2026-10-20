@@ -4,6 +4,15 @@ This changelog covers the ExcalidrawDesktop fork. Historical ExcalidrawZ release
 
 ## Unreleased
 
+### Local build 138
+
+- Inserting a screen annotation into the drawing open in the editor no longer gets erased: the editor kept the old scene and wrote it back when you left the drawing. The open editor now reloads the saved document.
+- Renaming, moving or trashing the open drawing in Finder no longer recreates it at the old path; the editor session closes as it does for a deletion.
+- History saved by MCP, AI edits, restores and cloud providers for linked-folder and provider drawings is now capped at 50 per drawing. Before, every MCP edit stored two full copies of the drawing in the app database and nothing was ever removed.
+- A drawing snapshot that arrives with a missing piece now fails instead of saving a truncated document; snapshot pieces are applied strictly in the order the editor sends them.
+- Faster saves for large library and cloud drawings: each autosave no longer parses and re-encodes the whole document to move the view position aside and set the file name (5.8 MB drawing: 114 + 78 ms → 5.6 + 5.6 ms); opening restores the view position in 5.5 ms instead of 77 ms; style changes are checked in 5 ms instead of 36 ms; the view-position file is rewritten only when it changes.
+- Cover previews for linked PNG and SVG drawings are decoded off the main thread; background sync checks no longer start duplicate probes.
+
 ### Local build 137
 
 - Fixed a launch hang: at startup the app listed MCP clients by decrypting each stored client secret from the Keychain on the main thread. After a rebuild macOS asks for Keychain access, and the app froze before showing a window. Clients are now listed in the background from non-secret Keychain attributes; secrets are read only when a client authenticates.

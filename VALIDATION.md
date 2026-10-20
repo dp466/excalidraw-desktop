@@ -1,5 +1,26 @@
 # Fork validation
 
+## Build 138: editor-engine review, data-loss fixes, autosave cost (2026-10-20)
+
+- Each fix has a test that fails on build 137 and passes now:
+  `ScreenAnnotationOpenTargetTests` (0 annotation frames left after leaving
+  the drawing), `FolderMonitorRenameTests` (no deletion event when the open
+  file is moved out), `LocalCheckpointRetentionTests` (60 of 60 tool
+  checkpoints kept), `SaveStreamOrderingTests` (a stream short one chunk
+  returned 196,608 of 200,000 bytes as success).
+- Component timings, 5.8 MB scene, release, 8 samples each, build 137 → 138:
+  viewport separation per autosave 113–116 → 4.7–7.2 ms; file-name update per
+  autosave 76–80 → 5.2–6.1 ms; viewport restore at open 77–78 → 4.9–5.9 ms;
+  style-change check 35–37 → 4.7–5.5 ms. `TopLevelJSONMemberTests` covers the
+  scanner's edge cases and its fallback to the full parse.
+- App-level benchmark (linked-folder drawings, 2 runs per build): open, MCP
+  edit+save, autosave and close equal within noise; peak footprint 85–89 MB on
+  both. Linked folders do not use the view-position sidecar, so the autosave
+  gains above apply to library and cloud drawings; they were not measured end
+  to end.
+- Full `script/test_local.sh` under `caffeinate -du`: 42 plugin, 62 editor,
+  **96 XCTest** and **26 Swift Testing** cases passed.
+
 ## Build 137: launch hang on Keychain access (2026-10-20)
 
 - Reproduced on the installed build 136: the process stayed alive with no

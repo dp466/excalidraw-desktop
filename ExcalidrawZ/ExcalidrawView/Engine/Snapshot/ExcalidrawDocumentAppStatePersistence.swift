@@ -50,6 +50,35 @@ enum ExcalidrawDocumentAppStatePersistence {
             return documentData
         }
 
+        // Runs on every autosave: rewrite only appState, not every element.
+        if let member = TopLevelJSONMember.locate("appState", in: documentData) {
+            var appState: [String: Any] = [:]
+            if let valueData = member.value(in: documentData) {
+                guard let object = try JSONSerialization.jsonObject(
+                    with: valueData,
+                    options: .fragmentsAllowed
+                ) as? [String: Any] else {
+                    return try documentDataByParsingDocument(documentData, settingNativeFileName: nativeFileName)
+                }
+                appState = object
+            }
+            if appState["name"] as? String == nativeFileName {
+                return documentData
+            }
+            appState["name"] = nativeFileName
+            return try member.replacingValue(
+                in: documentData,
+                with: JSONSerialization.data(withJSONObject: appState),
+                key: "appState"
+            )
+        }
+        return try documentDataByParsingDocument(documentData, settingNativeFileName: nativeFileName)
+    }
+
+    private static func documentDataByParsingDocument(
+        _ documentData: Data,
+        settingNativeFileName nativeFileName: String
+    ) throws -> Data {
         guard var documentObject = try JSONSerialization.jsonObject(with: documentData) as? [String: Any] else {
             return documentData
         }

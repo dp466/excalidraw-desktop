@@ -943,7 +943,10 @@ final class FileCoverCacheCoordinator: ObservableObject {
             }
             // Embedded PNG/SVG scenes retain their format-specific decoder.
             try await FileCoordinator.shared.downloadFile(url: url)
-            return try ExcalidrawFile(contentsOf: url)
+            // Image decoding and scene extraction stay off the main actor.
+            return try await Task.detached(priority: .utility) {
+                try ExcalidrawFile(contentsOf: url)
+            }.value
         }
     }
 

@@ -186,7 +186,10 @@ final class ScreenAnnotationController {
         guard session.beginBackgroundCapture() else { return }
         let annotationWindowNumber = windowController?.window?.windowNumber
         captureTask = Task { @MainActor [weak self, weak session] in
-            defer { self?.captureTask = nil }
+            defer {
+                // A cancelled capture may already have a replacement.
+                if !Task.isCancelled { self?.captureTask = nil }
+            }
             do {
                 let image = try await ScreenAnnotationCaptureService.capture(
                     screen,

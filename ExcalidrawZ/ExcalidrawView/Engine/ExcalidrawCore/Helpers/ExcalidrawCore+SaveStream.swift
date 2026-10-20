@@ -88,7 +88,7 @@ extension ExcalidrawCore {
                 includeFiles: includeFiles,
                 chunkSize: chunkSize
             )
-            try await sessionStore.register(streamID: streamID)
+            try await openStream(streamID: streamID)
 
             do {
                 let ack = try await webView.callAsyncJavaScript(
@@ -97,41 +97,47 @@ extension ExcalidrawCore {
                     contentWorld: .page
                 )
                 guard Self.acknowledgesSupport(ack) else {
-                    await sessionStore.cancel(streamID: streamID)
+                    sessionStore.cancel(streamID: streamID)
                     throw CurrentFileSaveStreamError.unsupported
                 }
-                return try await sessionStore.wait(
+                return try await awaitStream(
                     streamID: streamID,
                     timeoutNanoseconds: timeoutNanoseconds
                 )
             } catch {
-                await sessionStore.cancel(streamID: streamID)
+                sessionStore.cancel(streamID: streamID)
                 throw error
             }
         }
 
+        func openStream(streamID: String) async throws {
+            try sessionStore.register(streamID: streamID)
+        }
+
+        func awaitStream(
+            streamID: String,
+            timeoutNanoseconds: UInt64
+        ) async throws -> CurrentFileSaveStreamResult {
+            try await sessionStore.wait(streamID: streamID, timeoutNanoseconds: timeoutNanoseconds)
+        }
+
+        // Script messages arrive on the main thread in the order the editor
+        // posted them. Apply them synchronously so chunks and the finish
+        // marker cannot be reordered by separate tasks.
         func receiveStarted(_ payload: CurrentFileSaveStreamStartedData) {
-            Task {
-                await sessionStore.receiveStarted(payload)
-            }
+            sessionStore.receiveStarted(payload)
         }
 
         func receiveChunk(_ payload: CurrentFileSaveStreamChunkData) {
-            Task {
-                await sessionStore.receiveChunk(payload)
-            }
+            sessionStore.receiveChunk(payload)
         }
 
         func receiveFinished(_ payload: CurrentFileSaveStreamFinishedData) {
-            Task {
-                await sessionStore.receiveFinished(payload)
-            }
+            sessionStore.receiveFinished(payload)
         }
 
         func receiveFailed(_ payload: CurrentFileSaveStreamFailedData) {
-            Task {
-                await sessionStore.receiveFailed(payload)
-            }
+            sessionStore.receiveFailed(payload)
         }
 
         private static func requestScript(
@@ -169,10 +175,13 @@ extension ExcalidrawCore {
         }
     }
 
-    private actor CurrentFileSaveStreamSessionStore {
+    private final class CurrentFileSaveStreamSessionStore: @unchecked Sendable {
+        private let lock = NSLock()
         private var sessions: [String: Session] = [:]
 
         func register(streamID: String) throws {
+            lock.lock()
+            defer { lock.unlock() }
             guard sessions[streamID] == nil else {
                 throw CurrentFileSaveStreamError.duplicateStream(streamID)
             }
@@ -180,7 +189,9 @@ extension ExcalidrawCore {
         }
 
         func cancel(streamID: String) {
+            lock.lock()
             let session = sessions.removeValue(forKey: streamID)
+            lock.unlock()
             session?.continuation?.resume(throwing: CancellationError())
         }
 
@@ -191,7 +202,7 @@ extension ExcalidrawCore {
             let timeoutTask = Task { [weak self] in
                 do {
                     try await Task.sleep(nanoseconds: timeoutNanoseconds)
-                    await self?.finish(
+                    self?.finish(
                         streamID: streamID,
                         result: .failure(CurrentFileSaveStreamError.timedOut)
                     )
@@ -204,41 +215,46 @@ extension ExcalidrawCore {
 
             return try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { continuation in
-                    guard var session = sessions[streamID] else {
+                    lock.lock()
+                    guard let session = sessions[streamID] else {
+                        lock.unlock()
                         continuation.resume(throwing: CurrentFileSaveStreamError.unknownStream(streamID))
                         return
                     }
                     if let completion = session.completion {
                         sessions.removeValue(forKey: streamID)
+                        lock.unlock()
                         continuation.resume(with: completion)
                         return
                     }
                     session.continuation = continuation
-                    sessions[streamID] = session
+                    lock.unlock()
                 }
             } onCancel: {
-                Task {
-                    await self.cancel(streamID: streamID)
-                }
+                self.cancel(streamID: streamID)
             }
         }
 
         func receiveStarted(_ payload: CurrentFileSaveStreamStartedData) {
             guard let streamID = payload.resolvedStreamID else { return }
-            guard var session = sessions[streamID] else {
-                return
-            }
+            lock.lock()
+            defer { lock.unlock() }
+            guard let session = sessions[streamID] else { return }
             session.revision = payload.revision
             session.elementCount = payload.elementCount
             session.fileCount = payload.fileCount
-            sessions[streamID] = session
+            session.totalBytes = payload.totalBytes
+            if let totalBytes = payload.totalBytes, totalBytes > 0 {
+                session.data.reserveCapacity(totalBytes)
+            }
         }
 
         func receiveChunk(_ payload: CurrentFileSaveStreamChunkData) {
             guard let streamID = payload.resolvedStreamID else { return }
 
             let failure: CurrentFileSaveStreamError?
-            if var session = sessions[streamID] {
+            lock.lock()
+            if let session = sessions[streamID] {
                 if payload.index != session.nextChunkIndex {
                     failure = .unexpectedChunkIndex(
                         expected: session.nextChunkIndex,
@@ -247,7 +263,6 @@ extension ExcalidrawCore {
                 } else if let chunk = Data(base64Encoded: payload.base64) {
                     session.data.append(chunk)
                     session.nextChunkIndex += 1
-                    sessions[streamID] = session
                     failure = nil
                 } else {
                     failure = .invalidBase64Chunk(index: payload.index)
@@ -255,6 +270,7 @@ extension ExcalidrawCore {
             } else {
                 failure = .unknownStream(streamID)
             }
+            lock.unlock()
 
             if let failure {
                 finish(streamID: streamID, result: .failure(failure))
@@ -264,18 +280,30 @@ extension ExcalidrawCore {
         func receiveFinished(_ payload: CurrentFileSaveStreamFinishedData) {
             guard let streamID = payload.resolvedStreamID else { return }
 
+            lock.lock()
             guard let session = sessions[streamID] else {
+                lock.unlock()
                 return
             }
-            let result = CurrentFileSaveStreamResult(
-                streamID: streamID,
-                revision: payload.revision ?? session.revision,
-                elementCount: payload.elementCount ?? session.elementCount ?? 0,
-                fileCount: payload.fileCount ?? session.fileCount ?? 0,
-                documentData: session.data
-            )
+            let expectedBytes = payload.totalBytes ?? session.totalBytes
+            let result: Result<CurrentFileSaveStreamResult, Error>
+            if let expectedBytes, expectedBytes != session.data.count {
+                // A missing chunk must never become a truncated document.
+                result = .failure(CurrentFileSaveStreamError.failed(
+                    "Save stream ended with \(session.data.count) of \(expectedBytes) bytes."
+                ))
+            } else {
+                result = .success(CurrentFileSaveStreamResult(
+                    streamID: streamID,
+                    revision: payload.revision ?? session.revision,
+                    elementCount: payload.elementCount ?? session.elementCount ?? 0,
+                    fileCount: payload.fileCount ?? session.fileCount ?? 0,
+                    documentData: session.data
+                ))
+            }
+            lock.unlock()
 
-            finish(streamID: streamID, result: .success(result))
+            finish(streamID: streamID, result: result)
         }
 
         func receiveFailed(_ payload: CurrentFileSaveStreamFailedData) {
@@ -292,24 +320,30 @@ extension ExcalidrawCore {
             streamID: String,
             result: Result<CurrentFileSaveStreamResult, Error>
         ) {
-            guard var session = sessions[streamID] else {
+            lock.lock()
+            guard let session = sessions[streamID] else {
+                lock.unlock()
                 return
             }
             if let continuation = session.continuation {
                 sessions.removeValue(forKey: streamID)
+                lock.unlock()
                 continuation.resume(with: result)
             } else {
                 session.completion = result
-                sessions[streamID] = session
+                lock.unlock()
             }
         }
 
-        private struct Session {
+        /// A reference type so chunks append in place instead of copying the
+        /// growing buffer out of and back into the dictionary.
+        private final class Session {
             var data = Data()
             var nextChunkIndex = 0
             var revision: Int?
             var elementCount: Int?
             var fileCount: Int?
+            var totalBytes: Int?
             var continuation: CheckedContinuation<CurrentFileSaveStreamResult, Error>?
             var completion: Result<CurrentFileSaveStreamResult, Error>?
         }

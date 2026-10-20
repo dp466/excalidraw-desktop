@@ -372,11 +372,20 @@ final class ExcalidrawDocumentAppStateSnapshotSaver: @unchecked Sendable {
         in content: Data
     ) throws -> Bool {
         let appStateObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(appState))
-        guard let contentObject = try JSONSerialization.jsonObject(with: content) as? [String: Any] else {
-            return true
+        let existingAppStateObject: Any
+        // Only the stored appState is compared; do not parse every element.
+        if let member = TopLevelJSONMember.locate("appState", in: content) {
+            existingAppStateObject = try member.value(in: content).map {
+                try JSONSerialization.jsonObject(with: $0, options: .fragmentsAllowed)
+            } ?? [String: Any]()
+        } else {
+            guard let contentObject = try JSONSerialization.jsonObject(with: content) as? [String: Any] else {
+                return true
+            }
+            existingAppStateObject = contentObject["appState"] ?? [String: Any]()
         }
         let existing = ExcalidrawDocumentAppStatePersistence.appStateObjectByKeepingAppStateOnlyPersistentFields(
-            from: contentObject["appState"] ?? [String: Any]()
+            from: existingAppStateObject
         )
         let incoming = ExcalidrawDocumentAppStatePersistence.appStateObjectByKeepingAppStateOnlyPersistentFields(
             from: appStateObject
