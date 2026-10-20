@@ -1,5 +1,5 @@
 #if os(macOS)
-import Foundation
+import AppKit
 import Logging
 
 @MainActor
@@ -43,12 +43,27 @@ final class ScreenAnnotationSaveTaskManager {
                 taskLogger.error(
                     "Failed screen annotation save id=\(id) durationMs=\(duration) error=\(error)"
                 )
+                // The annotation window reported success when the save was
+                // queued; a failure here must not go unnoticed.
+                Self.presentFailure(error)
             }
         }
     }
 
     func waitUntilIdle() async {
         await pendingTask?.value
+    }
+
+    private static func presentFailure(_ error: Error) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "The screen annotation was not saved."
+        alert.informativeText = error.localizedDescription
+        if let window = NSApp.mainWindow ?? NSApp.windows.first(where: \.isVisible) {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
     }
 
     private static func milliseconds(

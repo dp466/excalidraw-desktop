@@ -4,6 +4,11 @@ This changelog covers the ExcalidrawDesktop fork. Historical ExcalidrawZ release
 
 ## Unreleased
 
+### Local build 142
+
+- Drawing previews in the backup browser and History no longer keep the previous drawing's framing when another drawing is selected; rotated rectangles in these previews turn around their centre.
+- A screen annotation that fails to save now shows an error instead of failing silently after the annotation window closed.
+
 ### Local build 141
 
 - Fixed data loss when dragging a library drawing or group onto a linked folder with "also delete the original" checked. The original was permanently deleted even when the copy failed, and a drawing named with "/" or ":" was never written at all. The original is now deleted only after the copy is written.

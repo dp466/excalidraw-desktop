@@ -1,5 +1,11 @@
 # Fork validation
 
+## Build 142: preview framing, annotation save errors (2026-10-20)
+
+- UI-only fixes without new automated tests (SwiftUI preview framing and an
+  error alert). Full `script/test_local.sh` under `caffeinate -du`: 42 plugin,
+  62 editor, **111 XCTest** and **26 Swift Testing** cases passed.
+
 ## Build 141: export data loss, decoder crash, remaining-area review (2026-10-20)
 
 - Confirmed on build 140: `FileRepository.exportToDisk` wrote nothing for a

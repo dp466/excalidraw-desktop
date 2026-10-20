@@ -32,6 +32,14 @@ struct ExcalidrawRenderer: View {
         .onAppear {
             calculateFrame()
         }
+        // The same renderer may be given another drawing (backup browser,
+        // checkpoint detail); its bounds must follow the new elements.
+        .watch(value: file.id) { _ in
+            calculateFrame()
+        }
+        .watch(value: file.elements.count) { _ in
+            calculateFrame()
+        }
     }
     
     @ViewBuilder
@@ -83,7 +91,8 @@ struct ExcalidrawRenderer: View {
                                     // Fix: opacity should be 0.0-1.0, not 0-100
                                     context.opacity = excalidrawGenericElement.opacity / 100.0
 
-                                    let rotationCenter = transformedRect.origin
+                                    // Excalidraw rotates shapes around their center.
+                                    let rotationCenter = CGPoint(x: transformedRect.midX, y: transformedRect.midY)
                                     context.translateBy(x: rotationCenter.x, y: rotationCenter.y)
                                     context.rotate(by: .radians(excalidrawGenericElement.angle))
                                     context.translateBy(x: -rotationCenter.x, y: -rotationCenter.y)
