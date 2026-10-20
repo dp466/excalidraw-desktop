@@ -1,5 +1,27 @@
 # Fork validation
 
+## Build 144: SSRF hardening after automated security review (2026-10-20)
+
+- The post-commit security review of build 143 found two gaps in the new
+  public-host check: redirects were validated only after being followed, and
+  the name check did not parse numeric host forms or DNS names resolving to
+  private addresses. `PublicNetworkHostPolicy.isPublicDestination` now
+  resolves the host (getaddrinfo) and rejects any non-public address;
+  `PublicNetworkRedirectGuard` refuses redirects before they are followed.
+- New `PublicNetworkHostPolicyTests`: `127.1`, `2130706433`, `0x7f.0.0.1`,
+  `0177.0.0.1`, `10.1`, `::ffff:127.0.0.1` rejected; public numeric hosts
+  allowed; a redirect to `127.1:8497` refused before following.
+  First run failed on `0177.0.0.1` (read as decimal 177 by the name check,
+  octal 127 by URL parsers); non-canonical numeric hosts are now refused.
+- Residual: DNS rebinding between the check and the connection is not
+  prevented (the connection is not pinned to the checked address).
+- Full `script/test_local.sh` under `caffeinate -du` (after updating to
+  macOS Darwin 27.2): first run had one failure,
+  `MCPRealClientAcceptanceTests` ("web view did not return a valid JavaScript
+  result"); it passed 2/2 alone and the full rerun passed: 42 plugin,
+  62 editor, **128 XCTest** and **26 Swift Testing** cases. Treated as a
+  timing-sensitive web-view test, not a regression from this change.
+
 ## Build 143: line-by-line review of the remaining code (2026-10-20)
 
 - Every source file was read line by line (components, persistence, sync,

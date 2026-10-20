@@ -460,7 +460,11 @@ private enum ImageURLResourceLoader {
     """
 
     static func load(_ rawURL: String) async throws -> (mimeType: String, dataURL: String) {
-        let url = try validatedURL(rawURL)
+        // validatedURL resolves the host (blocking DNS); keep it off the
+        // cooperative pool.
+        let url = try await Task.detached(priority: .userInitiated) {
+            try validatedURL(rawURL)
+        }.value
         let request = makeRequest(url: url, referer: sameOriginReferer(for: url))
 
         let configuration = URLSessionConfiguration.ephemeral
@@ -616,7 +620,7 @@ private enum ImageURLResourceLoader {
                 message: "Image URL source must not include credentials."
             )
         }
-        guard !PublicNetworkHostPolicy.isBlockedHost(host) else {
+        guard PublicNetworkHostPolicy.isPublicDestination(host) else {
             throw AdjustElementsMiddleware.AdjustmentError(
                 message: """
                 Image URL host "\(host)" is local or private. Use a public HTTPS image URL, or \
@@ -724,6 +728,73 @@ enum PublicNetworkHostPolicy {
         return false
     }
 
+    /// Name check plus DNS: a host is public only if every address it
+    /// resolves to is public. Resolution also canonicalizes numeric forms
+    /// ("127.1", "2130706433", "0x7f.0.0.1") that the name check does not
+    /// parse. Blocking (getaddrinfo): call off the main thread.
+    static func isPublicDestination(_ host: String) -> Bool {
+        guard !isBlockedHost(host), !isAmbiguousNumericHost(host) else { return false }
+        let name = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        var hints = addrinfo()
+        hints.ai_family = AF_UNSPEC
+        hints.ai_socktype = SOCK_STREAM
+        var result: UnsafeMutablePointer<addrinfo>?
+        guard getaddrinfo(name, nil, &hints, &result) == 0, let first = result else {
+            return false
+        }
+        defer { freeaddrinfo(first) }
+        var sawAddress = false
+        var cursor: UnsafeMutablePointer<addrinfo>? = first
+        while let info = cursor {
+            if let address = numericAddress(info.pointee.ai_addr, length: info.pointee.ai_addrlen) {
+                sawAddress = true
+                if isBlockedHost(address) { return false }
+            }
+            cursor = info.pointee.ai_next
+        }
+        return sawAddress
+    }
+
+    /// Numeric IPv4 written in anything but canonical dotted-decimal
+    /// ("0177.0.0.1", "0x7f.1", "2130706433", "10.1"). Parsers disagree on
+    /// leading zeros (octal or decimal), so such hosts are refused.
+    private static func isAmbiguousNumericHost(_ host: String) -> Bool {
+        let labels = host.lowercased()
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .split(separator: ".", omittingEmptySubsequences: false)
+        let isNumericLabel: (Substring) -> Bool = { label in
+            if label.hasPrefix("0x") {
+                return label.dropFirst(2).allSatisfy(\.isHexDigit)
+            }
+            return !label.isEmpty && label.allSatisfy(\.isASCII) && label.allSatisfy(\.isNumber)
+        }
+        guard !labels.isEmpty, labels.allSatisfy(isNumericLabel) else { return false }
+        let isCanonicalQuad = labels.count == 4 && labels.allSatisfy { label in
+            !label.hasPrefix("0x") && (label == "0" || !label.hasPrefix("0")) && UInt8(label) != nil
+        }
+        return !isCanonicalQuad
+    }
+
+    static func isPublicDestinationAsync(_ host: String) async -> Bool {
+        await Task.detached(priority: .userInitiated) {
+            isPublicDestination(host)
+        }.value
+    }
+
+    private static func numericAddress(
+        _ address: UnsafeMutablePointer<sockaddr>?,
+        length: socklen_t
+    ) -> String? {
+        guard let address else { return nil }
+        var buffer = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+        guard getnameinfo(
+            address, length, &buffer, socklen_t(buffer.count), nil, 0, NI_NUMERICHOST
+        ) == 0 else {
+            return nil
+        }
+        return String(cString: buffer)
+    }
+
     private static func parseIPv4(_ value: String) -> [UInt8]? {
         let parts = value.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 4 else { return nil }
@@ -760,5 +831,37 @@ enum PublicNetworkHostPolicy {
             default:
                 return false
         }
+    }
+}
+
+/// Session delegate that refuses any redirect to a destination failing
+/// `PublicNetworkHostPolicy.isPublicDestination`, before it is followed.
+/// A refused redirect leaves the 3xx as the final response.
+final class PublicNetworkRedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var didBlock = false
+
+    var blockedRedirect: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return didBlock
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard let url = request.url,
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = url.host,
+              PublicNetworkHostPolicy.isPublicDestination(host) else {
+            lock.lock(); didBlock = true; lock.unlock()
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
     }
 }

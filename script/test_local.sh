@@ -48,6 +48,7 @@ xcodebuild -project "$SOURCE_ROOT/ExcalidrawZ.xcodeproj" -scheme ExcalidrawZ -co
   -only-testing:ExcalidrawZTests/MediaCleanupTargetedTests \
   -only-testing:ExcalidrawZTests/CollabRoomIDCoderTests \
   -only-testing:ExcalidrawZTests/ArithmeticParserTests \
+  -only-testing:ExcalidrawZTests/PublicNetworkHostPolicyTests \
   -only-testing:ExcalidrawZTests/MoveLocalFolderTests \
   -only-testing:ExcalidrawZTests/CloudStorageDateParsingTests \
   -only-testing:ExcalidrawZTests/ExpectedFilesEnumerationTests \

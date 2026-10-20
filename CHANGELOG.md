@@ -4,6 +4,10 @@ This changelog covers the ExcalidrawDesktop fork. Historical ExcalidrawZ release
 
 ## Unreleased
 
+### Local build 144
+
+- AI web_fetch, AI image URLs and the in-app library browser now resolve each host before connecting and refuse any that points at a loopback, private or link-local address, including shorthand forms such as `127.1` or `2130706433`. Redirects are checked before they are followed, not after.
+
 ### Local build 143
 
 Line-by-line review of the remaining code (components, persistence, sync, cloud storage, editor bridge, sidebar, Home, Settings, AI chat, inspectors).

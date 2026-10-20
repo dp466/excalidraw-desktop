@@ -44,7 +44,8 @@ struct WebFetchTool: Tool {
         }
         // Model-chosen URLs (possibly prompt-injected) must not reach the
         // app's own loopback servers or devices on the local network.
-        guard let host = url.host, !PublicNetworkHostPolicy.isBlockedHost(host) else {
+        guard let host = url.host,
+              await PublicNetworkHostPolicy.isPublicDestinationAsync(host) else {
             throw ToolError.invalidInput("Only public internet URLs can be fetched.")
         }
 
@@ -55,8 +56,18 @@ struct WebFetchTool: Tool {
         request.timeoutInterval = 10.0
 
         do {
-            // Fetch content using URLSession
-            let (bytes, response) = try await URLSession.shared.bytes(for: request)
+            // Every redirect is validated before it is followed.
+            let redirectGuard = PublicNetworkRedirectGuard()
+            let session = URLSession(
+                configuration: .ephemeral,
+                delegate: redirectGuard,
+                delegateQueue: nil
+            )
+            defer { session.finishTasksAndInvalidate() }
+            let (bytes, response) = try await session.bytes(for: request)
+            if redirectGuard.blockedRedirect {
+                throw ToolError.executionFailed("Failed to fetch URL: redirected to a non-public host")
+            }
 
             guard let httpResponse = response as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode) else {

@@ -95,7 +95,23 @@ struct LibraryBrowserSheet: View {
         Task { @MainActor in
             defer { importInFlight = false }
             do {
-                let (data, _) = try await URLSession.shared.data(from: url)
+                guard let host = url.host,
+                      await PublicNetworkHostPolicy.isPublicDestinationAsync(host) else {
+                    throw Foundation.URLError(.badURL)
+                }
+                let redirectGuard = PublicNetworkRedirectGuard()
+                let session = URLSession(
+                    configuration: .ephemeral,
+                    delegate: redirectGuard,
+                    delegateQueue: nil
+                )
+                defer { session.finishTasksAndInvalidate() }
+                let (data, response) = try await session.data(from: url)
+                guard !redirectGuard.blockedRedirect,
+                      let httpResponse = response as? HTTPURLResponse,
+                      (200...299).contains(httpResponse.statusCode) else {
+                    throw Foundation.URLError(.badServerResponse)
+                }
                 var library = try JSONDecoder().decode(ExcalidrawLibrary.self, from: data)
                 if library.name == nil {
                     library.name = url.deletingPathExtension().lastPathComponent
