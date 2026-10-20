@@ -136,10 +136,12 @@ func backupFiles(
     }
 
     if replaceExistingToday {
+        // Atomic: today's previous backup must survive a failed replacement.
         if existingBackupExists {
-            try fileManager.removeItem(at: exportURL)
+            _ = try fileManager.replaceItemAt(exportURL, withItemAt: workingExportURL)
+        } else {
+            try fileManager.moveItem(at: workingExportURL, to: exportURL)
         }
-        try fileManager.moveItem(at: workingExportURL, to: exportURL)
         didInstallWorkingBackup = true
     }
     

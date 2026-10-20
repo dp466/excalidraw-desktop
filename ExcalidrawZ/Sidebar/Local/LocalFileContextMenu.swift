@@ -452,14 +452,18 @@ struct LocalFileRowMenuItems: View {
         Task {
             do {
                 guard case .localFolder(let folder) = fileState.currentActiveGroup else { return }
-                try await folder.withSecurityScopedURL { scopedURL async throws in
+                try await folder.withSecurityScopedURL { _ async throws in
 
                     for sourceFile in filesToDuplicate {
 
                         let file = try ExcalidrawFile(contentsOf: sourceFile)
 
                         var newFileName = sourceFile.deletingPathExtension().lastPathComponent
-                        while FileManager.default.fileExists(at: scopedURL.appendingPathComponent(newFileName, conformingTo: .excalidrawFile)) {
+                        // Check collisions where the copy is written (the source's own
+                        // folder), not the linked root: otherwise a copy of a file in a
+                        // sub-folder could overwrite an existing "Name-1" there.
+                        let destinationFolder = sourceFile.deletingLastPathComponent()
+                        while FileManager.default.fileExists(at: destinationFolder.appendingPathComponent(newFileName, conformingTo: .excalidrawFile)) {
                             let components = newFileName.components(separatedBy: "-")
                             if components.count == 2, let numComponent = components.last, let index = Int(numComponent) {
                                 newFileName = "\(components[0])-\(index+1)"
@@ -468,7 +472,7 @@ struct LocalFileRowMenuItems: View {
                             }
                         }
 
-                        let newURL = sourceFile.deletingLastPathComponent().appendingPathComponent(newFileName, conformingTo: .excalidrawFile)
+                        let newURL = destinationFolder.appendingPathComponent(newFileName, conformingTo: .excalidrawFile)
 
                         // Use FileCoordinator for safe atomic write
                         guard let data = file.content else { continue }
@@ -528,6 +532,13 @@ struct LocalFileRowMenuItems: View {
         let filesToDelete = Array(files)
 
         Task {
+            // Close an open editor first: its boundary save would otherwise write
+            // the drawing back to its old path after it was trashed.
+            if case .localFile(let activeURL) = fileState.currentActiveFile,
+               filesToDelete.contains(where: { $0.hasSameFileSystemPath(as: activeURL) }),
+               !(await fileState.requestActiveFileChange(nil)) {
+                return
+            }
             do {
                 for file in filesToDelete {
                     try await LocalFolder.withSecurityScopedAccessToContainingFolder(for: file) {

@@ -137,8 +137,10 @@ actor LocalStorageManager {
             )
         }
         
-        // Check if file exists and content is identical
-        if FileManager.default.fileExists(at: fileURL) {
+        // Check if file exists and content is identical. Compare sizes first so
+        // a changed document is not read back in full just to find the difference.
+        let existingSize = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        if existingSize == content.count, FileManager.default.fileExists(at: fileURL) {
             do {
                 let existingContent = try Data(contentsOf: fileURL)
                 if existingContent == content {

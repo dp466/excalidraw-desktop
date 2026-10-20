@@ -26,6 +26,9 @@ public actor ICloudStatusChecker {
     /// - Returns: The current ICloudFileStatus
     /// - Throws: Error if unable to read resource values
     public func checkStatus(for url: URL) async throws -> ICloudFileStatus {
+        // URL caches resource values; a long-lived URL would report stale status.
+        var url = url
+        url.removeAllCachedResourceValues()
         return try await withCheckedThrowingContinuation { continuation in
             do {
                 // Check if file is in iCloud Drive

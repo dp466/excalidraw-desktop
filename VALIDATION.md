@@ -1,5 +1,26 @@
 # Fork validation
 
+## Build 136: boundary saves, file moves, multi-window quit, app-level speed (2026-10-19)
+
+- Root cause found with heap snapshots of the app-level cycle benchmark: every
+  open/close added one document-sized `NSData` (24 extra after 8 rounds of 3
+  drawings, +20 MB). Each boundary save rewrote the file and added a new
+  checkpoint even when nothing changed. `BoundarySaveTests` failed on build 135
+  (modified date changed; checkpoints 2 vs 1) and passes now. The same test
+  covers an unsignalled edit before close and a pending edit across an in-app move.
+- Real-drawing cycle benchmark (open/close × 8, release, same harness):
+  close 991 KB 142–149 → 116–121 ms, 840 KB 105–119 → 85–91 ms, 292 KB
+  35–40 → 30–39 ms; open unchanged (about 50–85 ms). The pinned editor re-indexes
+  every element of these drawings at load (`index`/`version` change on 1,333 of
+  1,333 elements), so their boundary save still writes. The gain comes from
+  skipping element decoding and reusing parses, not from the skip itself.
+- A first attempt to skip writes when the destination was missing broke an
+  existing guarantee (`testForcedSaveBeforeDirtyMetadataAndRetry`: first saves
+  must create the file). It was replaced by following recorded in-app moves.
+- Full `script/test_local.sh` (run under `caffeinate -du`; the high-refresh
+  fixture needs an awake display): 42 plugin, 62 editor, TypeScript, patch
+  checks, **82 XCTest** and **26 Swift Testing** cases passed.
+
 ## Build 135: linked-file ID race, review coverage (2026-10-19)
 
 - The linked-file ID table is now lock-protected. A 2,000-way concurrent

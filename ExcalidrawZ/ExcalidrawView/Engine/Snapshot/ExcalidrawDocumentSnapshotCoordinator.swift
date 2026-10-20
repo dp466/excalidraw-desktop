@@ -271,7 +271,8 @@ final class ExcalidrawDocumentSnapshotCoordinator: @unchecked Sendable {
                 expectedFileID: expectedFileID,
                 expectedRevision: flushState?.expectedRevision,
                 target: target,
-                capturedContent: capturedContent
+                capturedContent: capturedContent,
+                skipIfStoredSceneMatches: flushState == nil
             )
         }
 
@@ -299,11 +300,26 @@ final class ExcalidrawDocumentSnapshotCoordinator: @unchecked Sendable {
         reason: String,
         expectedFileID: String,
         expectedRevision: Int?,
-        target: FileState.CapturedCanvasSaveTarget,
-        capturedContent: Data?
+        target capturedTarget: FileState.CapturedCanvasSaveTarget,
+        capturedContent: Data?,
+        skipIfStoredSceneMatches: Bool = false
     ) async -> Bool {
         guard let delegate,
               let core = delegate.snapshotCoordinatorCore else { return false }
+        // An in-app move or rename may have taken the file while it was open.
+        // Follow it, so pending edits land in the moved file instead of
+        // recreating the old one.
+        var target = capturedTarget
+        if case .localFile(let url, let newCheckpoint, let suppressCheckpoint) = target.kind,
+           !(await Self.localFileExists(url)),
+           let movedURL = ExcalidrawFile.currentLocation(ofMoved: url),
+           await Self.localFileExists(movedURL) {
+            target = FileState.CapturedCanvasSaveTarget(
+                id: target.id,
+                kind: .localFile(url: movedURL, newCheckpoint: newCheckpoint, suppressCheckpoint: suppressCheckpoint)
+            )
+            core.logger.info("Boundary snapshot follows moved file \(url.lastPathComponent) -> \(movedURL.lastPathComponent)")
+        }
         do {
             let loadedID = core.documentSyncController.currentLoadedFileID
             guard loadedID == expectedFileID else {
@@ -327,10 +343,63 @@ final class ExcalidrawDocumentSnapshotCoordinator: @unchecked Sendable {
                 expectedFileID: expectedFileID,
                 target: target
             )
+            // A forced boundary save with nothing pending: when the live scene
+            // equals the file on disk, do not rewrite it, bump its date, or add
+            // a duplicate File History checkpoint just because it was viewed.
+            // Disk is the comparison source and, on a mismatch, the base
+            // envelope for the write, so both parses are reused.
+            var parsedObjects: (stored: [String: Any]?, live: [String: Any]?)?
+            if skipIfStoredSceneMatches, case .localFile(let url, _, _) = target.kind {
+                // Comparison only: an uncoordinated, mapped read is enough. A torn
+                // read can only cause a mismatch, which falls back to the full save.
+                let storedRead: Result<Data, Error>
+                do {
+                    storedRead = .success(try await LocalFolder.withSecurityScopedAccessToContainingFolder(for: url) {
+                        try Data(contentsOf: url, options: .mappedIfSafe)
+                    })
+                } catch {
+                    storedRead = .failure(error)
+                }
+                // A missing destination is written normally: it may be a first save,
+                // and an unsignalled edit must never be dropped.
+                switch storedRead {
+                    case .success(let stored):
+                        let storedObject = ExcalidrawFile.parsedSceneObject(stored)
+                        let live = ExcalidrawFile.parsedSceneObject(fileData.documentData)
+                        parsedObjects = (storedObject, live)
+                        if let storedObject, let live, ExcalidrawFile.sceneObject(storedObject, matches: live) {
+                            contentScheduler.markCommitted(
+                                snapshotRevision: snapshot.revision,
+                                fallbackRevision: expectedRevision
+                            )
+                            core.logger.debug("Skipped unchanged boundary snapshot \(reason) id=\(expectedFileID)")
+                            return true
+                        }
+                    case .failure:
+                        break
+                }
+            }
             var file = ExcalidrawFile()
             file.id = expectedFileID
             file.content = capturedContent ?? file.content
-            try file.update(data: fileData)
+            if let parsedObjects, parsedObjects.live != nil {
+                // The file is persisted and discarded: only content and files are
+                // used, so skip decoding every element into native models.
+                file.apply(try ExcalidrawFile.prepareCanvasDataUpdate(
+                    existingObject: parsedObjects.stored ?? capturedContent.flatMap(ExcalidrawFile.parsedSceneObject),
+                    liveObject: parsedObjects.live,
+                    data: fileData,
+                    decodeElements: false
+                ))
+            } else if let content = file.content {
+                file.apply(try ExcalidrawFile.prepareCanvasDataUpdate(
+                    existingContent: content,
+                    data: fileData,
+                    decodeElements: false
+                ))
+            } else {
+                try file.update(data: fileData)
+            }
             try await FileState.persistCapturedCanvasUpdate(target, with: file)
             contentScheduler.markCommitted(
                 snapshotRevision: snapshot.revision,
@@ -345,6 +414,12 @@ final class ExcalidrawDocumentSnapshotCoordinator: @unchecked Sendable {
             core.publishError(error)
             return false
         }
+    }
+
+    private static func localFileExists(_ url: URL) async -> Bool {
+        (try? await LocalFolder.withSecurityScopedAccessToContainingFolder(for: url) {
+            FileManager.default.fileExists(atPath: url.path)
+        }) ?? false
     }
 
     private func capturedCanvasFileDataForPersistence(

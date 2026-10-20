@@ -71,19 +71,27 @@ class SyncState: ObservableObject {
 
     /// Update syncing files from all status boxes
     func updateSyncingFiles(from boxes: [FileStatusBox]) {
-        syncingFiles = boxes.filter { $0.status.syncStatus?.isSyncing == true }
-        queuedFiles = boxes.filter { box in
+        let syncing = boxes.filter { $0.status.syncStatus?.isSyncing == true }
+        let queued = boxes.filter { box in
             if case .queued = box.status.syncStatus {
                 return true
             }
             return false
         }
-        failedFiles = boxes.filter { box in
+        let failed = boxes.filter { box in
             if case .error = box.status.syncStatus {
                 return true
             }
             return false
         }
+        // Publishing an unchanged list still invalidates every observing view.
+        if !Self.sameBoxes(syncing, syncingFiles) { syncingFiles = syncing }
+        if !Self.sameBoxes(queued, queuedFiles) { queuedFiles = queued }
+        if !Self.sameBoxes(failed, failedFiles) { failedFiles = failed }
+    }
+
+    private static func sameBoxes(_ lhs: [FileStatusBox], _ rhs: [FileStatusBox]) -> Bool {
+        Set(lhs.map(ObjectIdentifier.init)) == Set(rhs.map(ObjectIdentifier.init))
     }
 }
 
@@ -123,6 +131,7 @@ class FileStatusService {
     /// Subscriptions to FileStatusBox changes
     /// When any box's status changes, we update syncState
     private var subscriptions: [String: AnyCancellable] = [:]
+    private var isSyncStateRefreshScheduled = false
 
     /// Reactive sync state for UI observation
     /// UI should observe this ObservableObject for sync progress updates
@@ -151,8 +160,12 @@ class FileStatusService {
             guard let self = self else { return }
             // `objectWillChange` fires before the new status is stored. Hop to
             // the next main-actor turn so aggregate sync debug state is current.
+            // Coalesce a burst of box changes into one rescan.
+            guard !self.isSyncStateRefreshScheduled else { return }
+            self.isSyncStateRefreshScheduled = true
             Task { @MainActor [weak self] in
                 guard let self = self else { return }
+                self.isSyncStateRefreshScheduled = false
                 self.syncState.updateSyncingFiles(from: Array(self.statusBoxes.values))
             }
         }

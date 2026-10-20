@@ -1487,6 +1487,55 @@ extension ExcalidrawFile {
         apply(try Self.prepareCanvasDataUpdate(existingContent: content, data: data))
     }
 
+    /// True when `stored` already holds the same elements, image data and
+    /// appState as a canvas snapshot. Conservative: any parse failure or
+    /// difference (including viewport) reports a mismatch.
+    static func storedScene(_ stored: Data, matchesDocumentData documentData: Data) -> Bool {
+        guard let storedObject = parsedSceneObject(stored),
+              let liveObject = parsedSceneObject(documentData) else {
+            return false
+        }
+        return sceneObject(storedObject, matches: liveObject)
+    }
+
+    /// Cheap check: Excalidraw bumps version/versionNonce on every element
+    /// change, so most real edits differ here without serializing anything.
+    static func elementVersions(_ storedObject: [String: Any], match liveObject: [String: Any]) -> Bool {
+        let storedList = storedObject["elements"] as? [[String: Any]] ?? []
+        let liveList = liveObject["elements"] as? [[String: Any]] ?? []
+        guard storedList.count == liveList.count else { return false }
+        for (stored, live) in zip(storedList, liveList) {
+            for key in ["id", "version", "versionNonce", "index", "isDeleted"] {
+                // Foundation values from JSONSerialization: NSString/NSNumber/NSNull.
+                guard (stored[key] as AnyObject?)?.isEqual(live[key]) ?? (live[key] == nil) else { return false }
+            }
+        }
+        return true
+    }
+
+    static func parsedSceneObject(_ data: Data) -> [String: Any]? {
+        (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    static func sceneObject(_ storedObject: [String: Any], matches liveObject: [String: Any]) -> Bool {
+        func canonical(_ value: Any?) -> Data? {
+            try? JSONSerialization.data(withJSONObject: ["v": value ?? NSNull()], options: [.sortedKeys])
+        }
+        func imageData(_ value: Any?) -> [String: String] {
+            ((value as? [String: Any]) ?? [:]).reduce(into: [:]) { result, entry in
+                result[entry.key] = (entry.value as? [String: Any])?["dataURL"] as? String ?? ""
+            }
+        }
+        guard elementVersions(storedObject, match: liveObject),
+              let storedElements = canonical(storedObject["elements"]),
+              storedElements == canonical(liveObject["elements"]),
+              let storedAppState = canonical(storedObject["appState"]),
+              storedAppState == canonical(liveObject["appState"]) else {
+            return false
+        }
+        return imageData(storedObject["files"]) == imageData(liveObject["files"])
+    }
+
     mutating func apply(_ preparedUpdate: PreparedCanvasDataUpdate) {
         self.content = preparedUpdate.content
         self.elements = preparedUpdate.elements
@@ -1495,13 +1544,30 @@ extension ExcalidrawFile {
 
     static func prepareCanvasDataUpdate(
         existingContent: Data,
-        data: ExcalidrawCanvasView.Coordinator.ExcalidrawFileData
+        data: ExcalidrawCanvasView.Coordinator.ExcalidrawFileData,
+        decodeElements: Bool = true
+    ) throws -> PreparedCanvasDataUpdate {
+        try prepareCanvasDataUpdate(
+            existingObject: parsedSceneObject(existingContent),
+            liveObject: try JSONSerialization.jsonObject(with: data.documentData) as? [String: Any],
+            data: data,
+            decodeElements: decodeElements
+        )
+    }
+
+    /// Same as above with documents the caller already parsed, so a boundary
+    /// comparison does not parse the scene twice.
+    static func prepareCanvasDataUpdate(
+        existingObject: [String: Any]?,
+        liveObject: [String: Any]?,
+        data: ExcalidrawCanvasView.Coordinator.ExcalidrawFileData,
+        decodeElements: Bool = true
     ) throws -> PreparedCanvasDataUpdate {
         // The live canvas is authoritative. A missing or damaged stored document must
         // not crash the app or block every later save, so fall back to a minimal envelope.
-        var contentObject = ((try? JSONSerialization.jsonObject(with: existingContent)) as? [String: Any])
+        var contentObject = existingObject
             ?? ["type": "excalidraw", "version": 2, "source": "https://excalidraw.com"]
-        guard let fileDataJson = try JSONSerialization.jsonObject(with: data.documentData) as? [String : Any] else {
+        guard let fileDataJson = liveObject else {
             struct InvalidPayloadError: LocalizedError {
                 var errorDescription: String? {
                     "Invalid update payload."
@@ -1516,6 +1582,9 @@ extension ExcalidrawFile {
         let elements: [ExcalidrawElement]
         if let dataElements = data.elements {
             elements = dataElements
+        } else if !decodeElements {
+            // Boundary saves persist `content` and `files` only.
+            elements = []
         } else {
             elements = try decodeJSONValue(
                 fileDataJson["elements"] ?? [],

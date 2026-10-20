@@ -477,7 +477,9 @@ final class FileState: ObservableObject {
         currentFilePublisherCancellables.forEach { $0.cancel() }
         resetSelections()
         if let previousActiveFile {
-            didUpdateFileState[previousActiveFile] = false
+            // Drop the closed file's entry; keeping it retained every opened
+            // file (and library File objects) for the life of the window.
+            didUpdateFileState.removeValue(forKey: previousActiveFile)
             userCheckpointWindowStartedAt.removeValue(forKey: previousActiveFile.id)
         }
         if let newValue {
@@ -1197,7 +1199,9 @@ final class FileState: ObservableObject {
             self.shouldIgnoreUpdate = false
             self.didUpdateFile = false
         }
-        stateUpdateQueue.asyncAfter(deadline: .now().advanced(by: .milliseconds(2500)), execute: recoverWatchUpdateWorkItem!)
+        // Runs on main: it reads activeFiles and the canvas loading state, and
+        // writes the update gate, which the main actor reads and resets.
+        DispatchQueue.main.asyncAfter(deadline: .now().advanced(by: .milliseconds(2500)), execute: recoverWatchUpdateWorkItem!)
     }
 
     private var activeCanvasIsLoading: Bool {
@@ -2024,11 +2028,12 @@ final class FileState: ObservableObject {
         )
         
         // Get media items that need to be imported
-        let mediaItemsNeedImport = try await context.perform {
-            let mediaItems = try context.fetch(NSFetchRequest<MediaItem>(entityName: "MediaItem"))
-            return excalidrawFile.files.values.filter { item in
-                !mediaItems.contains(where: { $0.id == item.id })
-            }
+        let existingMediaIDs = try await MediaItem.existingIDs(
+            among: Set(excalidrawFile.files.values.map(\.id)),
+            context: context
+        )
+        let mediaItemsNeedImport = excalidrawFile.files.values.filter { item in
+            !existingMediaIDs.contains(item.id)
         }
         
         // Create media items through repository (creates entities and saves to iCloud Drive)
@@ -2162,9 +2167,9 @@ final class FileState: ObservableObject {
         )
         
         // Import medias
-        let allMediaItems = try await context.perform {
-            try context.fetch(NSFetchRequest<MediaItem>(entityName: "MediaItem"))
-        }
+        // IDs only: MediaItem rows hold inline image data, and managed objects
+        // must not be read outside their context's queue.
+        let allMediaItemIDs = try await MediaItem.existingIDs(among: nil, context: context)
         var insertedMediaID = Set<String>()
         
         // files
@@ -2182,7 +2187,7 @@ final class FileState: ObservableObject {
             // Import medias
             let mediasToImport = excalidrawFile.files.values.filter { item in
                 !insertedMediaID.contains(item.id) &&
-                !allMediaItems.contains(where: {$0.id == item.id})
+                !allMediaItemIDs.contains(item.id)
             }
             
             if !mediasToImport.isEmpty {
@@ -2293,11 +2298,13 @@ final class FileState: ObservableObject {
             guard file.inTrash else { return nil }
             file.inTrash = false
             
-            if let groupID = file.group?.objectID {
-                let fetchRequest = NSFetchRequest<Group>(entityName: "Group")
-                fetchRequest.predicate = NSPredicate(format: "id == %@", groupID as CVarArg)
-                fetchRequest.fetchLimit = 1
-                if try context.fetch(fetchRequest).isEmpty {
+            if let group = file.group {
+                // Restore into the original group when it still exists. The old
+                // check compared the UUID `id` attribute with an object ID, never
+                // matched, and sent every restored file to the default group.
+                let groupStillExists = !group.isDeleted
+                    && (try? context.existingObject(with: group.objectID)) != nil
+                if !groupStillExists || group.groupType == .trash {
                     let defaultGroup = try PersistenceController.shared.getDefaultGroup(context: context)
                     file.group = defaultGroup
                 }
@@ -2435,8 +2442,11 @@ final class FileState: ObservableObject {
                 do {
                     var targetGroupID: NSManagedObjectID? = groupID
                     var parentGroup: (any ExcalidrawGroup)? = targetGroup
+                    var visited: Set<NSManagedObjectID> = [groupID]
                     while true {
-                        guard let parentGroupID = (parentGroup?.getParent() as? (any ExcalidrawGroup))?.objectID else {
+                        // A corrupt parent cycle must not spin this queue forever.
+                        guard let parentGroupID = (parentGroup?.getParent() as? (any ExcalidrawGroup))?.objectID,
+                              visited.insert(parentGroupID).inserted else {
                             break
                         }
                         parentGroup = context.object(with: parentGroupID) as? (any ExcalidrawGroup)

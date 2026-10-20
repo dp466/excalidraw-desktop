@@ -421,7 +421,10 @@ enum EncryptedContentService {
     }
 
     static func isEncryptedEnvelope(_ data: Data) -> Bool {
-        guard let envelope = try? decodeEnvelope(data) else {
+        // Every save checks plain documents; skip the full JSON decode when the
+        // magic marker cannot be present.
+        guard data.range(of: Data(EncryptedContentEnvelope.magicValue.utf8)) != nil,
+              let envelope = try? decodeEnvelope(data) else {
             return false
         }
         return envelope.magic == EncryptedContentEnvelope.magicValue

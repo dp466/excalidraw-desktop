@@ -292,7 +292,12 @@ struct OpenFromURLModifier: ViewModifier {
                 }
                 
                 if fileState.excalidrawWebCoordinator?.isLoading == true {
-                    self.webViewIsLoadingCancellable = fileState.excalidrawWebCoordinator?.$isLoading.sink { isLoading in
+                    // `sink` delivers the current value synchronously, before the
+                    // cancellable is stored, so self-cancelling there missed and the
+                    // image was inserted twice. Wait once for loading to finish.
+                    self.webViewIsLoadingCancellable = fileState.excalidrawWebCoordinator?.$isLoading
+                        .first(where: { !$0 })
+                        .sink { _ in
                         Task {
                             try? await Task.sleep(nanoseconds: UInt64(1e+9 * 2.3))
                             _ = try? await fileState.excalidrawWebCoordinator?.loadImageToExcalidrawCanvas(

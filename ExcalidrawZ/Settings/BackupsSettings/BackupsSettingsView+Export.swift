@@ -48,10 +48,13 @@ func exportBackupRecord(
         recoveryKey: recoveryKey
     )
 
+    // Replace atomically: removing the old export before copying would lose it
+    // if the copy failed. Staging is on the target's volume, so this is a move.
     if fileManager.fileExists(atPath: targetURL.path) {
-        try fileManager.removeItem(at: targetURL)
+        _ = try fileManager.replaceItemAt(targetURL, withItemAt: stagingURL)
+    } else {
+        try fileManager.moveItem(at: stagingURL, to: targetURL)
     }
-    try fileManager.copyItem(at: stagingURL, to: targetURL)
 }
 
 private func writeExportedBackupRecord(

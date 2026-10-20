@@ -4,6 +4,18 @@ This changelog covers the ExcalidrawDesktop fork. Historical ExcalidrawZ release
 
 ## Unreleased
 
+### Local build 136
+
+- Viewing a drawing no longer rewrites it: closing or switching away used to always rewrite the file, bump its modified date (reordering an "updated" sort) and add a duplicate File History checkpoint that pushed real history out. Unchanged drawings are now left alone; edits, including ones not yet signalled, are still saved.
+- Moving or renaming the open drawing inside the app no longer recreates it at the old path; pending edits follow the move to the new file.
+- Duplicating a drawing in a sub-folder could overwrite an existing "Name-1" there; trashing an open drawing or a folder containing it could write the drawing back. Both fixed.
+- Quitting with several windows open now saves every window's drawing, not only the most recent window's.
+- Restoring a file from Recently Deleted returns it to its original group instead of always the default group.
+- Fixed a data race in the editor's update-gate timer (it ran on a background queue but read main-thread state).
+- Opening a PNG or SVG image file no longer inserts the image twice.
+- Exporting a drawing whose name contains "/" or ":" no longer produces a missing file; replacing a backup export or today's automatic backup is now atomic, so a failed replacement keeps the previous copy.
+- Faster and lighter: closing a large drawing is about 20% faster (991 KB: 145 → 119 ms); the document is no longer parsed on the main thread at every open; library saves no longer load every image in the library or JSON-decode documents just to detect encryption; local autosaves no longer load every History checkpoint; iCloud linked folders re-check only changed files; sync status lists publish only on change; a closed file's state is released.
+
 ### Local build 135
 
 - Fixed a data race on the linked-file ID table: it was changed from background folder refresh, cover rendering and imports while the main thread used it. A linked-folder rename during a refresh could corrupt it and crash. Access is now lock-protected, with atomic lookups and moves.

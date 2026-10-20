@@ -39,13 +39,37 @@ struct ExcalidrawFile: Codable, Hashable, Identifiable, Sendable {
         }
     }
 
-    /// Moves an ID to a renamed or moved file, atomically.
+    /// Moves an ID to a renamed or moved file, atomically, and remembers the
+    /// move so a save still bound to the old path can follow the file.
     static func moveLocalFileID(from source: URL, to destination: URL) {
         withLocalFileIDs { storage in
             if let id = storage.removeValue(forKey: source) {
                 storage[destination] = id
             }
         }
+        localFileMoveLock.lock()
+        defer { localFileMoveLock.unlock() }
+        recentLocalFileMoves[source.standardizedFileURL] = destination.standardizedFileURL
+        recentLocalFileMoveOrder.append(source.standardizedFileURL)
+        if recentLocalFileMoveOrder.count > 128 {
+            recentLocalFileMoves[recentLocalFileMoveOrder.removeFirst()] = nil
+        }
+    }
+
+    private static let localFileMoveLock = NSLock()
+    private static var recentLocalFileMoves: [URL: URL] = [:]
+    private static var recentLocalFileMoveOrder: [URL] = []
+
+    /// Where an in-app move took a file that was at `url`, following chained moves.
+    static func currentLocation(ofMoved url: URL) -> URL? {
+        localFileMoveLock.lock()
+        defer { localFileMoveLock.unlock() }
+        var current = url.standardizedFileURL
+        var visited: Set<URL> = []
+        while let next = recentLocalFileMoves[current], visited.insert(current).inserted {
+            current = next
+        }
+        return current == url.standardizedFileURL ? nil : current
     }
     
     var id: String = UUID().uuidString
@@ -187,8 +211,13 @@ struct ExcalidrawFile: Codable, Hashable, Identifiable, Sendable {
         // try container.encode(self.roomID, forKey: .roomID)
     }
     
+    /// Decoded once: callers create blank files often (boundary saves, new files).
+    private static let template: ExcalidrawFile = {
+        try! ExcalidrawFile(contentsOf: Bundle.main.url(forResource: "template", withExtension: "excalidraw")!)
+    }()
+
     init() {
-        try! self.init(contentsOf: Bundle.main.url(forResource: "template", withExtension: "excalidraw")!)
+        self = Self.template
     }
     
     init(contentsOf url: URL, refresh: Bool = false) throws {

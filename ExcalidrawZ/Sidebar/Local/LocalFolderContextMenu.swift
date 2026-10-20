@@ -302,16 +302,20 @@ struct LocalFolderMenuItems: View {
             }
         } else {
             Button(role: .destructive) {
-                if case .localFile(let file) = fileState.currentActiveFile,
-                   file.deletingLastPathComponent() == folder.url {
-                    fileState.setActiveFile(nil)
-                }
-                if let parent = folder.parent {
-                    fileState.currentActiveGroup = .localFolder(parent)
-                } else {
-                    fileState.currentActiveGroup = nil
-                }
                 Task {
+                    // Close an editor open anywhere inside this folder and wait for
+                    // its save before trashing, so the save cannot race the trash.
+                    if case .localFile(let file) = fileState.currentActiveFile,
+                       let folderURL = folder.url,
+                       file.isContained(in: folderURL),
+                       !(await fileState.requestActiveFileChange(nil)) {
+                        return
+                    }
+                    if let parent = folder.parent {
+                        fileState.currentActiveGroup = .localFolder(parent)
+                    } else {
+                        fileState.currentActiveGroup = nil
+                    }
                     do {
                         try await folder.withSecurityScopedURL { scopedURL async throws in
                             _ = try await FileCoordinator.shared.coordinatedTrash(url: scopedURL)

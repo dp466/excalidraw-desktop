@@ -22,19 +22,34 @@ import AppKit
 final class ApplicationTerminationCanvasFlushCoordinator {
     static let shared = ApplicationTerminationCanvasFlushCoordinator()
 
-    private weak var fileState: FileState?
+    private struct WeakFileState { weak var value: FileState? }
+
+    /// One FileState per window. Quitting must save every window's open drawing,
+    /// not only the most recently registered one.
+    private var fileStates: [WeakFileState] = []
 
     private init() {}
 
-    func register(fileState: FileState) {
-        self.fileState = fileState
+    private var liveFileStates: [FileState] {
+        fileStates.removeAll { $0.value == nil }
+        return fileStates.compactMap(\.value)
     }
 
-    func beginTermination() { fileState?.beginApplicationTermination() }
-    func cancelTermination() { fileState?.cancelApplicationTermination() }
+    func register(fileState: FileState) {
+        guard !liveFileStates.contains(where: { $0 === fileState }) else { return }
+        fileStates.append(WeakFileState(value: fileState))
+    }
+
+    func beginTermination() { liveFileStates.forEach { $0.beginApplicationTermination() } }
+    func cancelTermination() { liveFileStates.forEach { $0.cancelApplicationTermination() } }
 
     func flushPendingCanvasSnapshot() async -> Bool {
-        await fileState?.flushPendingCanvasSnapshotBeforeTermination() ?? true
+        var allSaved = true
+        for fileState in liveFileStates {
+            let saved = await fileState.flushPendingCanvasSnapshotBeforeTermination()
+            allSaved = allSaved && saved
+        }
+        return allSaved
     }
 }
 

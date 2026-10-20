@@ -120,7 +120,8 @@ enum EncryptedBackupService {
     }
 
     static func isEncryptedEnvelope(_ data: Data) -> Bool {
-        guard let envelope = try? decodeEnvelope(data) else {
+        guard data.range(of: Data(EncryptedBackupEnvelope.magicValue.utf8)) != nil,
+              let envelope = try? decodeEnvelope(data) else {
             return false
         }
         return envelope.magic == EncryptedBackupEnvelope.magicValue

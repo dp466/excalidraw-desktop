@@ -136,11 +136,9 @@ class LocalFileUtils {
                 // Update dependent state only after the file-system move succeeds.
                 for mapping in fileMappings {
                     ExcalidrawFile.moveLocalFileID(from: mapping.source, to: mapping.destination)
-                    self.updateCheckpoints(
-                        oldURL: mapping.source,
-                        newURL: mapping.destination
-                    )
                 }
+                // One context for the whole folder instead of one task per file.
+                self.updateCheckpoints(fileMappings.map { (oldURL: $0.source, newURL: $0.destination) })
 
                 try await context.perform {
                     guard case let folder as LocalFolder = context.object(with: folderID),
@@ -166,15 +164,27 @@ class LocalFileUtils {
     }
     
     static func updateCheckpoints(oldURL: URL, newURL: URL) {
+        updateCheckpoints([(oldURL: oldURL, newURL: newURL)])
+    }
+
+    static func updateCheckpoints(_ mappings: [(oldURL: URL, newURL: URL)]) {
+        guard !mappings.isEmpty else { return }
         Task.detached {
             let context = PersistenceController.shared.container.newBackgroundContext()
             do {
                 try await context.perform {
+                    let destinations = Dictionary(
+                        mappings.map { ($0.oldURL, $0.newURL) },
+                        uniquingKeysWith: { _, latest in latest }
+                    )
                     let fetchRequest = NSFetchRequest<LocalFileCheckpoint>(entityName: "LocalFileCheckpoint")
-                    fetchRequest.predicate = NSPredicate(format: "url = %@", oldURL as NSURL)
-                    let checkpoints = try context.fetch(fetchRequest)
-                    checkpoints.forEach { $0.url = newURL }
-                    try context.save()
+                    fetchRequest.predicate = NSPredicate(format: "url IN %@", destinations.keys.map { $0 as NSURL })
+                    for checkpoint in try context.fetch(fetchRequest) {
+                        if let url = checkpoint.url, let destination = destinations[url] {
+                            checkpoint.url = destination
+                        }
+                    }
+                    if context.hasChanges { try context.save() }
                 }
             } catch {
                 localFolderStateLogger.error("Failed to update local checkpoints after URL change: \(error)")

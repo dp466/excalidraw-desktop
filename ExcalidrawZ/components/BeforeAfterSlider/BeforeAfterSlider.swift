@@ -25,6 +25,7 @@ struct BeforeAfterSlider<First: View, Second: View, Handle: View>: View {
     @State private var isDragging = false
     @State private var isMouseOver = false
     @State private var isAutoplaying = false
+    @State private var isVisible = false
     @State private var direction: CGFloat = 1
     
 //    let sliderParticles: VortexSystem = {
@@ -158,13 +159,19 @@ struct BeforeAfterSlider<First: View, Second: View, Handle: View>: View {
                         }
                 )
                 .onAppear {
+                    isVisible = true
                     if autoplay {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            // Do not start a perpetual loop for a view that already left.
+                            guard isVisible else { return }
                             startAutoplay()
                         }
                     }
                 }
-                .onDisappear { stopAutoplay() }
+                .onDisappear {
+                    isVisible = false
+                    stopAutoplay()
+                }
             }
         }
     }

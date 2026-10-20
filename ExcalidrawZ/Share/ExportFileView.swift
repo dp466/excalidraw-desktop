@@ -220,9 +220,13 @@ struct ExportFileView: View {
                 let fileManager: FileManager = FileManager.default
                 let directory: URL = try getTempDirectory()
                 let fileExtension = "excalidraw"
-                let filename = (file.name ?? String(localizable: .newFileNamePlaceholder)) + ".\(fileExtension)"
+                // A name containing a path separator would point into a missing folder.
+                let baseName = (file.name ?? String(localizable: .newFileNamePlaceholder))
+                    .components(separatedBy: CharacterSet(charactersIn: "/:"))
+                    .joined(separator: "-")
+                let filename = baseName + ".\(fileExtension)"
                 let url = directory.appendingPathComponent(filename, conformingTo: .fileURL)
-                if fileManager.fileExists(atPath: url.absoluteString) {
+                if fileManager.fileExists(atPath: url.path) {
                     try fileManager.removeItem(at: url)
                 }
 
@@ -237,7 +241,7 @@ struct ExportFileView: View {
                     throw NoContentError()
                 }
 
-                fileManager.createFile(atPath: url.filePath, contents: fileData)
+                try fileData.write(to: url, options: .atomic)
                 
                 await MainActor.run {
                     fileURL = url

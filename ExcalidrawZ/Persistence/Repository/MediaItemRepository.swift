@@ -65,13 +65,14 @@ actor MediaItemRepository {
         var mediaItemObjectIDs: [NSManagedObjectID] = []
 
         // Get existing media items to avoid duplicates
-        let allMediaItems = try await context.perform {
-            try context.fetch(NSFetchRequest<MediaItem>(entityName: "MediaItem"))
-        }
+        let existingIDs = try await MediaItem.existingIDs(
+            among: Set(resources.map(\.id)),
+            context: context
+        )
 
         // Filter resources that need to be imported
         let resourcesToImport = resources.filter { resource in
-            !allMediaItems.contains(where: { $0.id == resource.id })
+            !existingIDs.contains(resource.id)
         }
 
         // Create media items
@@ -128,13 +129,14 @@ actor MediaItemRepository {
         var mediaItemObjectIDs: [NSManagedObjectID] = []
 
         // Get existing media items to avoid duplicates
-        let allMediaItems = try await context.perform {
-            try context.fetch(NSFetchRequest<MediaItem>(entityName: "MediaItem"))
-        }
+        let existingIDs = try await MediaItem.existingIDs(
+            among: Set(resources.map(\.id)),
+            context: context
+        )
 
         // Filter resources that need to be imported
         let resourcesToImport = resources.filter { resource in
-            !allMediaItems.contains(where: { $0.id == resource.id })
+            !existingIDs.contains(resource.id)
         }
 
         // Create media items
@@ -166,11 +168,20 @@ actor MediaItemRepository {
                 throw AppError.fileError(.notFound)
             }
 
-            let existingMediaItems = (file.medias?.allObjects as? [MediaItem]) ?? []
-            let existingMediaItemsByID = Dictionary(
-                existingMediaItems.compactMap { mediaItem -> (String, MediaItem)? in
-                    guard let id = mediaItem.id else { return nil }
-                    return (id, mediaItem)
+            // Runs on every library save. Read IDs, and fetch full rows only for
+            // the rare items missing both storage path and data, so existing
+            // images' inline data is not faulted in each time.
+            let idRequest = NSFetchRequest<NSDictionary>(entityName: "MediaItem")
+            idRequest.resultType = .dictionaryResultType
+            idRequest.propertiesToFetch = ["id"]
+            idRequest.predicate = NSPredicate(format: "file == %@", file)
+            let existingIDs = Set(try context.fetch(idRequest).compactMap { $0["id"] as? String })
+
+            let repairRequest = NSFetchRequest<MediaItem>(entityName: "MediaItem")
+            repairRequest.predicate = NSPredicate(format: "file == %@ AND filePath == nil AND dataURL == nil", file)
+            let repairIDs = Dictionary(
+                try context.fetch(repairRequest).compactMap { item -> (String, NSManagedObjectID)? in
+                    item.id.map { ($0, item.objectID) }
                 },
                 uniquingKeysWith: { existing, _ in existing }
             )
@@ -178,14 +189,12 @@ actor MediaItemRepository {
             var resourcesToCreate: [ExcalidrawFile.ResourceFile] = []
             var resourcesToRepair: [(NSManagedObjectID, ExcalidrawFile.ResourceFile)] = []
             for (id, resource) in excalidrawFile.files {
-                guard let existingMediaItem = existingMediaItemsByID[id] else {
+                guard existingIDs.contains(id) else {
                     resourcesToCreate.append(resource)
                     continue
                 }
-
-                if existingMediaItem.filePath == nil,
-                   existingMediaItem.dataURL == nil {
-                    resourcesToRepair.append((existingMediaItem.objectID, resource))
+                if let objectID = repairIDs[id] {
+                    resourcesToRepair.append((objectID, resource))
                 }
             }
 
@@ -487,5 +496,26 @@ actor MediaItemRepository {
         }
 
         return resourceFiles
+    }
+}
+
+extension MediaItem {
+    /// Media item IDs already stored, optionally limited to `candidates`. Fetches
+    /// only the ID column: rows hold inline base64 image data, and managed
+    /// objects must not be read outside their context's queue.
+    static func existingIDs(
+        among candidates: Set<String>?,
+        context: NSManagedObjectContext
+    ) async throws -> Set<String> {
+        if let candidates, candidates.isEmpty { return [] }
+        return try await context.perform {
+            let request = NSFetchRequest<NSDictionary>(entityName: "MediaItem")
+            request.resultType = .dictionaryResultType
+            request.propertiesToFetch = ["id"]
+            if let candidates {
+                request.predicate = NSPredicate(format: "id IN %@", Array(candidates))
+            }
+            return Set(try context.fetch(request).compactMap { $0["id"] as? String })
+        }
     }
 }

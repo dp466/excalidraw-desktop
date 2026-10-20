@@ -96,13 +96,14 @@ actor FileRepository {
         )
 
         // Get existing media items to avoid duplicates
-        let allMediaItems = try await context.perform {
-            try context.fetch(NSFetchRequest<MediaItem>(entityName: "MediaItem"))
-        }
+        let existingIDs = try await MediaItem.existingIDs(
+            among: Set(excalidrawFile.files.values.map(\.id)),
+            context: context
+        )
 
         // Filter media items that need to be imported
         let mediaItemsNeedImport = excalidrawFile.files.values.filter { item in
-            !allMediaItems.contains(where: { $0.id == item.id })
+            !existingIDs.contains(item.id)
         }
 
         // Create media item entities

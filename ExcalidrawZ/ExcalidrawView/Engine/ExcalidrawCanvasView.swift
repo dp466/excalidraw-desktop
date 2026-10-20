@@ -386,9 +386,7 @@ struct ExcalidrawCanvasView: View {
     ///     actual drawing uses the right colors even for fields the file doesn't
     ///     explicitly set, and any `restoreAppState` contamination is overwritten.
     @MainActor
-    private func syncCanvasDrawingSettingsFromFile() {
-        let fileSettings = file?.content.map(UserDrawingSettings.from(fileContent:))
-            ?? UserDrawingSettings()
+    private func syncCanvasDrawingSettingsFromFile(_ fileSettings: UserDrawingSettings) {
         canvasPreferencesState.drawingSettings.apply(fileSettings)
 
         let effective = fileSettings
@@ -463,8 +461,14 @@ struct ExcalidrawCanvasView: View {
 
         guard type == .normal else { return }
         await syncCanvasPrefsFromWeb()
+        // Parsing the whole document for a few currentItem* fields would block the
+        // main thread on every open; do it in the background.
+        let content = await MainActor.run { file?.content }
+        let fileSettings = await Task.detached(priority: .userInitiated) {
+            content.map(UserDrawingSettings.from(fileContent:)) ?? UserDrawingSettings()
+        }.value
         await MainActor.run {
-            syncCanvasDrawingSettingsFromFile()
+            syncCanvasDrawingSettingsFromFile(fileSettings)
         }
     }
     

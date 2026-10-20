@@ -26,29 +26,37 @@ enum LocalFileCheckpointStore {
             request.sortDescriptors = [
                 NSSortDescriptor(key: "updatedAt", ascending: false)
             ]
+
+            // Most autosaves only replace the newest checkpoint; do not load
+            // every retained row (and inline content) to find it.
+            if !newCheckpoint {
+                request.fetchLimit = 1
+                if let latest = try context.fetch(request).first {
+                    latest.content = content
+                    latest.updatedAt = .now
+                    if latest.source == nil {
+                        latest.source = FileCheckpointSource.user.rawValue
+                    }
+                    try context.save()
+                    return
+                }
+                request.fetchLimit = 0
+            }
+
             let checkpoints = try context.fetch(request)
+            let checkpoint = LocalFileCheckpoint(context: context)
+            checkpoint.id = UUID()
+            checkpoint.url = fileURL
+            checkpoint.updatedAt = .now
+            checkpoint.content = content
+            checkpoint.source = FileCheckpointSource.user.rawValue
 
-            if !newCheckpoint, let latest = checkpoints.first {
-                latest.content = content
-                latest.updatedAt = .now
-                if latest.source == nil {
-                    latest.source = FileCheckpointSource.user.rawValue
-                }
-            } else {
-                let checkpoint = LocalFileCheckpoint(context: context)
-                checkpoint.id = UUID()
-                checkpoint.url = fileURL
-                checkpoint.updatedAt = .now
-                checkpoint.content = content
-                checkpoint.source = FileCheckpointSource.user.rawValue
-
-                let excessCount = max(
-                    0,
-                    checkpoints.count + 1 - maximumUserCheckpointCount
-                )
-                for checkpoint in checkpoints.suffix(excessCount) {
-                    context.delete(checkpoint)
-                }
+            let excessCount = max(
+                0,
+                checkpoints.count + 1 - maximumUserCheckpointCount
+            )
+            for checkpoint in checkpoints.suffix(excessCount) {
+                context.delete(checkpoint)
             }
             try context.save()
         }

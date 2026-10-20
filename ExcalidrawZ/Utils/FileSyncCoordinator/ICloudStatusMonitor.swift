@@ -129,10 +129,15 @@ actor ICloudStatusMonitor {
     
     @MainActor
     @objc private func metadataQueryDidUpdate(_ notification: Notification) {
+        // Updates arrive whenever any file changes (including each upload of the
+        // open drawing). Re-check only the items the query reports as changed.
+        let changed = (notification.userInfo?[NSMetadataQueryUpdateChangedItemsKey] as? [Any] ?? [])
+            + (notification.userInfo?[NSMetadataQueryUpdateAddedItemsKey] as? [Any] ?? [])
+        guard !changed.isEmpty else { return }
         Task {
             guard let query = notification.object as? NSMetadataQuery else { return }
             query.disableUpdates()
-            await processMetadataResults(query.results)
+            await processMetadataResults(changed)
             query.enableUpdates()
         }
     }
@@ -163,7 +168,7 @@ actor ICloudStatusMonitor {
         let status: ICloudFileStatus
         do {
             status = try await statusChecker.checkStatus(for: fileURL)
-            logger.info("Resolved iCloud status for \(fileURL.lastPathComponent): \(String(describing: status))")
+            logger.debug("Resolved iCloud status for \(fileURL.lastPathComponent): \(String(describing: status))")
         } catch {
             logger.error("Failed to resolve iCloud status for \(fileURL.lastPathComponent): \(error)")
             status = .error(error.localizedDescription)
