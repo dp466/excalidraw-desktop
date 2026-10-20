@@ -44,11 +44,17 @@ struct ExcalidrawMCPCredentialStore: Sendable {
         if status == errSecItemNotFound { return [] }
         guard status == errSecSuccess else { throw KeychainFailure(status: status, operation: "list") }
         // macOS's file-based Keychain rejects MatchLimitAll + ReturnData.
-        // Enumerate account attributes, then read one owned item at a time.
+        // Summaries come from non-secret attributes (no decryption, so no Keychain
+        // access prompt); only items created before the label existed read the secret.
         let entries = (result as? [[String: Any]]) ?? (result as? [String: Any]).map { [$0] } ?? []
         return try entries.compactMap { attributes in
             guard let account = attributes[kSecAttrAccount as String] as? String,
                   let id = UUID(uuidString: account) else { return nil }
+            if let label = attributes[kSecAttrLabel as String] as? String,
+               let kind = ExcalidrawMCPClientKind(rawValue: label),
+               let createdAt = attributes[kSecAttrCreationDate as String] as? Date {
+                return ExcalidrawMCPClientSummary(id: id, kind: kind, createdAt: createdAt)
+            }
             return try credential(id: id)?.summary
         }
             .sorted { $0.createdAt < $1.createdAt }
@@ -69,6 +75,8 @@ struct ExcalidrawMCPCredentialStore: Sendable {
         let data = try JSONEncoder().encode(credential)
         var attributes = accountQuery(id)
         attributes[kSecValueData as String] = data
+        // Non-secret kind, so listing clients never needs to decrypt the token.
+        attributes[kSecAttrLabel as String] = kind.rawValue
 #if !os(macOS)
         attributes[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
 #endif

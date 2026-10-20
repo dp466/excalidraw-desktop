@@ -26,6 +26,8 @@ final class MCPKeychainCredentialTests: XCTestCase {
             XCTAssertNil(try store.authenticate(authorization: nil))
             let summaries = try store.listClients()
             XCTAssertTrue(summaries.count == 1 && summaries[0].id == summary.id)
+            // Listing reads the non-secret kind label, not the encrypted token.
+            XCTAssertTrue(summaries.first?.kind == .codex)
             try store.revoke(id: summary.id)
             XCTAssertTrue(try store.credential(id: summary.id).map { _ in false } ?? true)
             XCTAssertNil(try store.authenticate(authorization: "Bearer " + credential.token))

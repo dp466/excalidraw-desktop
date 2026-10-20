@@ -4,6 +4,10 @@ This changelog covers the ExcalidrawDesktop fork. Historical ExcalidrawZ release
 
 ## Unreleased
 
+### Local build 137
+
+- Fixed a launch hang: at startup the app listed MCP clients by decrypting each stored client secret from the Keychain on the main thread. After a rebuild macOS asks for Keychain access, and the app froze before showing a window. Clients are now listed in the background from non-secret Keychain attributes; secrets are read only when a client authenticates.
+
 ### Local build 136
 
 - Viewing a drawing no longer rewrites it: closing or switching away used to always rewrite the file, bump its modified date (reordering an "updated" sort) and add a duplicate File History checkpoint that pushed real history out. Unchanged drawings are now left alone; edits, including ones not yet signalled, are still saved.

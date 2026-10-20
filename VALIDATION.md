@@ -1,5 +1,17 @@
 # Fork validation
 
+## Build 137: launch hang on Keychain access (2026-10-20)
+
+- Reproduced on the installed build 136: the process stayed alive with no
+  window and did not answer Quit (AppleEvent -1712). `App.init` called
+  `listClients`, which read and decrypted every MCP client secret on the main
+  thread; a rebuilt app's new code identity makes macOS show a Keychain prompt.
+- The listing now runs on a background task and uses the non-secret label and
+  creation date. Clients created before this build fall back to the old read in
+  the background. `MCPKeychainCredentialTests` checks the listed kind.
+- Full `script/test_local.sh` under `caffeinate -du`: 82 XCTest and 26 Swift
+  Testing cases passed.
+
 ## Build 136: boundary saves, file moves, multi-window quit, app-level speed (2026-10-19)
 
 - Root cause found with heap snapshots of the app-level cycle benchmark: every

@@ -71,6 +71,9 @@ final class ExcalidrawZMCPServerController: ObservableObject {
             Self.saveServiceMode(authorizedServiceMode)
         }
 
+        // Never read the Keychain on the main thread during app launch: an unsigned
+        // rebuild makes macOS ask for Keychain access, which blocked App.init (no
+        // windows, quit ignored) until the prompt was answered.
         refreshClients()
 
         if isEnabled {
@@ -228,9 +231,26 @@ final class ExcalidrawZMCPServerController: ObservableObject {
         UserDefaults.standard.set(mode.rawValue, forKey: serviceModeDefaultsKey)
     }
 
+    private var clientRefreshGeneration = 0
+
+    /// Lists client summaries off the main thread and publishes the newest result.
     func refreshClients() {
-        do { clients = try credentials.listClients(); credentialError = nil }
-        catch { credentialError = error.localizedDescription }
+        clientRefreshGeneration += 1
+        let generation = clientRefreshGeneration
+        let credentials = credentials
+        Task.detached(priority: .utility) { [weak self] in
+            let result = Result { try credentials.listClients() }
+            await MainActor.run {
+                guard let self, generation == self.clientRefreshGeneration else { return }
+                switch result {
+                    case .success(let clients):
+                        self.clients = clients
+                        self.credentialError = nil
+                    case .failure(let error):
+                        self.credentialError = error.localizedDescription
+                }
+            }
+        }
     }
 
     func createClient(_ kind: ExcalidrawMCPClientKind) {
