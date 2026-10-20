@@ -4,6 +4,10 @@ This changelog covers the ExcalidrawDesktop fork. Historical ExcalidrawZ release
 
 ## Unreleased
 
+### Local build 135
+
+- Fixed a data race on the linked-file ID table: it was changed from background folder refresh, cover rendering and imports while the main thread used it. A linked-folder rename during a refresh could corrupt it and crash. Access is now lock-protected, with atomic lookups and moves.
+
 ### Local build 134
 
 - Fixed linked-folder change events with more than one window: a second window replaced the first window's subscription, and closing any subscriber silenced every window, so the sidebar stopped reflecting external file changes. A second window also showed an "already monitoring" error, and closing one window stopped monitoring for the other.

@@ -159,11 +159,10 @@ extension LocalFolder {
             }
         }
 
-        let existingMappings = ExcalidrawFile.localFileURLIDMapping
-        for (sourceURL, fileID) in existingMappings {
+        // Runs on background contexts too; the move helper is lock-protected.
+        for sourceURL in ExcalidrawFile.localFileURLIDMapping.keys {
             guard let destinationURL = sourceURL.rebased(from: oldRootURL, to: newRootURL) else { continue }
-            ExcalidrawFile.localFileURLIDMapping[sourceURL] = nil
-            ExcalidrawFile.localFileURLIDMapping[destinationURL] = fileID
+            ExcalidrawFile.moveLocalFileID(from: sourceURL, to: destinationURL)
         }
     }
     

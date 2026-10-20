@@ -12,7 +12,41 @@ import CoreData
 
 
 struct ExcalidrawFile: Codable, Hashable, Identifiable, Sendable {
-    static var localFileURLIDMapping: [URL : String] = [:]
+    /// Stable editor IDs for linked local files. Read and written from the main
+    /// actor and from background folder refresh, cover rendering and imports,
+    /// so all access goes through a lock.
+    private static let localFileIDLock = NSLock()
+    private static var localFileIDStorage: [URL: String] = [:]
+
+    private static func withLocalFileIDs<T>(_ body: (inout [URL: String]) -> T) -> T {
+        localFileIDLock.lock()
+        defer { localFileIDLock.unlock() }
+        return body(&localFileIDStorage)
+    }
+
+    static var localFileURLIDMapping: [URL: String] {
+        get { withLocalFileIDs { $0 } }
+        set { withLocalFileIDs { $0 = newValue } }
+    }
+
+    /// Returns the existing ID for `url`, or records and returns a new one, atomically.
+    static func localFileID(for url: URL, refresh: Bool = false) -> String {
+        withLocalFileIDs { storage in
+            if !refresh, let id = storage[url] { return id }
+            let id = UUID().uuidString
+            storage[url] = id
+            return id
+        }
+    }
+
+    /// Moves an ID to a renamed or moved file, atomically.
+    static func moveLocalFileID(from source: URL, to destination: URL) {
+        withLocalFileIDs { storage in
+            if let id = storage.removeValue(forKey: source) {
+                storage[destination] = id
+            }
+        }
+    }
     
     var id: String = UUID().uuidString
     
@@ -194,8 +228,7 @@ struct ExcalidrawFile: Codable, Hashable, Identifiable, Sendable {
                 struct UnrecognizedURLError: Error {}
                 throw UnrecognizedURLError()
         }
-        let id = refresh ? UUID().uuidString : (Self.localFileURLIDMapping[url] ?? UUID().uuidString)
-        Self.localFileURLIDMapping[url] = id
+        let id = Self.localFileID(for: url, refresh: refresh)
         try self.init(data: data, id: id)
         switch fileType {
             case .excalidrawFile:

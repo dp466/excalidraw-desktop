@@ -118,8 +118,7 @@ struct LocalFileMenuProvider: View {
             try FileManager.default.moveItem(at: file, to: newURL)
 
             // Update local file ID mapping
-            ExcalidrawFile.localFileURLIDMapping[newURL] = ExcalidrawFile.localFileURLIDMapping[file]
-            ExcalidrawFile.localFileURLIDMapping[file] = nil
+            ExcalidrawFile.moveLocalFileID(from: file, to: newURL)
 
             // Also update checkpoints
             updateCheckpoints(oldURL: file, newURL: newURL)

@@ -135,9 +135,7 @@ class LocalFileUtils {
 
                 // Update dependent state only after the file-system move succeeds.
                 for mapping in fileMappings {
-                    ExcalidrawFile.localFileURLIDMapping[mapping.destination] =
-                        ExcalidrawFile.localFileURLIDMapping[mapping.source]
-                    ExcalidrawFile.localFileURLIDMapping[mapping.source] = nil
+                    ExcalidrawFile.moveLocalFileID(from: mapping.source, to: mapping.destination)
                     self.updateCheckpoints(
                         oldURL: mapping.source,
                         newURL: mapping.destination
@@ -219,8 +217,7 @@ class LocalFileUtils {
                 }
 
                 // Update local file ID mapping
-                ExcalidrawFile.localFileURLIDMapping[newURL] = ExcalidrawFile.localFileURLIDMapping[file]
-                ExcalidrawFile.localFileURLIDMapping[file] = nil
+                ExcalidrawFile.moveLocalFileID(from: file, to: newURL)
 
                 // Also update checkpoints
                 self.updateCheckpoints(oldURL: file, newURL: newURL)

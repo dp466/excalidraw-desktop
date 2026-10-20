@@ -1,5 +1,24 @@
 # Fork validation
 
+## Build 135: linked-file ID race, review coverage (2026-10-19)
+
+- The linked-file ID table is now lock-protected. A 2,000-way concurrent
+  lookup test agrees on one ID, and moves keep it.
+- Review coverage. Every one of the 722 Swift files was swept for: forced
+  casts and `try!`; force indexing and unwrapping; unique-key dictionaries;
+  observers and repeating timers; main-thread `sync`; static caches; file reads
+  in main-actor files; locks held across early returns; `@Published` writes from
+  background work. Read file by file: autosave, recovery, scheduler, snapshot and
+  appState savers; the web message bridge and save stream; FileState's save and
+  switch boundary; FileCoordinator, FileSyncCoordinator, FolderMonitor and the
+  folder monitor modifier; linked-folder persistence, loader and providers;
+  checkpoint repositories; preview and library caches; the Quick Look extension;
+  both loopback servers; the MCP server and bridge validation paths.
+- Measured and rejected: caching security-scoped bookmark resolution
+  (0.27 ms median per call) is not worth the scoping risk.
+- Full `script/test_local.sh`: 42 plugin, 62 editor, TypeScript, patch checks,
+  **79 XCTest** and **26 Swift Testing** cases passed.
+
 ## Build 134: multi-window file events, file I/O, app-level measurements (2026-10-19)
 
 - App-level benchmark: the real bundled editor and the app's own open, MCP-edit,

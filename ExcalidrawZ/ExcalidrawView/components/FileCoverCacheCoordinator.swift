@@ -936,11 +936,7 @@ final class FileCoverCacheCoordinator: ObservableObject {
                     try Data(contentsOf: $0, options: .uncached)
                 }
                 try Task.checkCancellation()
-                let id = await MainActor.run {
-                    let id = ExcalidrawFile.localFileURLIDMapping[url] ?? UUID().uuidString
-                    ExcalidrawFile.localFileURLIDMapping[url] = id
-                    return id
-                }
+                let id = ExcalidrawFile.localFileID(for: url)
                 var file = try await FileCoverPreviewPreparation.decode(data: data, id: id)
                 file.name = url.deletingPathExtension().lastPathComponent
                 return file

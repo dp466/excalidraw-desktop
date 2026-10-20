@@ -698,7 +698,7 @@ extension ExcalidrawMCPAppBridge {
         request.predicate = NSPredicate(format: "url == %@", source as NSURL)
         for checkpoint in try context.fetch(request) { checkpoint.url = destination }
         try context.save()
-        if let fileID = ExcalidrawFile.localFileURLIDMapping[source] { ExcalidrawFile.localFileURLIDMapping[destination] = fileID; ExcalidrawFile.localFileURLIDMapping[source] = nil }
+        ExcalidrawFile.moveLocalFileID(from: source, to: destination)
     }
 
     private func mcpRequiredString(_ arguments: [String: MCPJSONValue], _ key: String) throws -> String {
