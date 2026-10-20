@@ -53,10 +53,19 @@ struct LocalFolderMonitorModifier: ViewModifier {
             }
             .onAppear {
                 startListeningToFileChanges()
+                // Re-register after a disappear released this view's registrations.
+                handleFoldersObservation(folders: folders)
             }
             .onDisappear {
                 eventStreamTask?.cancel()
                 eventStreamTask = nil
+                // Release this window's shared monitor registrations.
+                let urls = Array(folderURLs.values)
+                registeredFolders.removeAll()
+                folderURLs.removeAll()
+                Task {
+                    for url in urls { await FileSyncCoordinator.shared.removeFolder(at: url) }
+                }
             }
     }
 

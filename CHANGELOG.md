@@ -4,6 +4,12 @@ This changelog covers the ExcalidrawDesktop fork. Historical ExcalidrawZ release
 
 ## Unreleased
 
+### Local build 134
+
+- Fixed linked-folder change events with more than one window: a second window replaced the first window's subscription, and closing any subscriber silenced every window, so the sidebar stopped reflecting external file changes. A second window also showed an "already monitoring" error, and closing one window stopped monitoring for the other.
+- File writes, deletes, moves and trashing no longer block the shared file actor and a Swift concurrency thread while macOS coordinates access; they run on one ordered queue.
+- Style and preference changes no longer rebuild and re-serialize the whole document just to detect a change (6.6 MB scene: 33.3 → 19.5 ms per check).
+
 ### Local build 133
 
 - Security: the embedded editor's loopback server (port 8497) served any file the user could read through `%2e%2e` path segments. Requests are now confined to the bundled editor folder, including symlinks.

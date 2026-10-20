@@ -38,11 +38,15 @@ actor FileSyncCoordinator {
     /// Active folder monitors (keyed by folder URL)
     private var folderMonitors: [URL: FolderMonitor] = [:]
 
+    /// Each window registers the same linked folders. Count registrations so a
+    /// second window does not fail and closing one window does not stop the other's.
+    private var folderRegistrationCounts: [URL: Int] = [:]
+
     /// File coordinator for safe file operations
     private let fileCoordinator = FileCoordinator.shared
 
-    /// AsyncStream continuation for file change events
-    private var eventContinuation: AsyncStream<FSChangeEvent>.Continuation?
+    /// One continuation per subscriber (one per window).
+    private var eventContinuations: [UUID: AsyncStream<FSChangeEvent>.Continuation] = [:]
 
     // MARK: - Initialization
 
@@ -73,10 +77,10 @@ actor FileSyncCoordinator {
             throw FolderError.folderNotFound
         }
         
-        // Check if already monitoring
-        guard folderMonitors[url] == nil else {
-            logger.warning("Folder already being monitored: \(url.filePath)")
-            throw FolderError.alreadyMonitoring
+        // Another window already monitors this folder: share its monitor.
+        if folderMonitors[url] != nil {
+            folderRegistrationCounts[url, default: 1] += 1
+            return
         }
         
         // Create and start monitor
@@ -91,7 +95,14 @@ actor FileSyncCoordinator {
         
         do {
             try await monitor.start()
+            if folderMonitors[url] != nil {
+                // Another registration finished while this one was starting.
+                await monitor.stop()
+                folderRegistrationCounts[url, default: 1] += 1
+                return
+            }
             folderMonitors[url] = monitor
+            folderRegistrationCounts[url] = 1
         } catch {
             await monitor.stop()
             throw error
@@ -107,6 +118,12 @@ actor FileSyncCoordinator {
             logger.warning("Attempted to remove folder that wasn't being monitored: \(url.lastPathComponent)")
             return
         }
+        let remainingRegistrations = (folderRegistrationCounts[url] ?? 1) - 1
+        guard remainingRegistrations <= 0 else {
+            folderRegistrationCounts[url] = remainingRegistrations
+            return
+        }
+        folderRegistrationCounts.removeValue(forKey: url)
 
         logger.info("Removing folder from monitoring: \(url.lastPathComponent)")
 
@@ -125,6 +142,7 @@ actor FileSyncCoordinator {
         }
 
         folderMonitors.removeAll()
+        folderRegistrationCounts.removeAll()
 
         logger.info("All folders removed from monitoring")
     }
@@ -144,7 +162,7 @@ actor FileSyncCoordinator {
         }
 
         // Emit status change event
-        eventContinuation?.yield(.statusChanged(url: fileURL, status: status))
+        emit(.statusChanged(url: fileURL, status: status))
     }
 
 #if os(iOS)
@@ -205,20 +223,34 @@ actor FileSyncCoordinator {
     /// ```
     /// - Returns: AsyncStream of FSChangeEvent
     var fileChangesStream: AsyncStream<FSChangeEvent> {
-        AsyncStream { continuation in
-            self.eventContinuation = continuation
-
-            continuation.onTermination = { @Sendable _ in
-                Task { [weak self] in
-                    await self?.clearEventContinuation()
-                }
+        // A single shared continuation let a newer subscriber replace an older
+        // one, and the older one's termination then cleared the newer one.
+        let id = UUID()
+        var captured: AsyncStream<FSChangeEvent>.Continuation?
+        let stream = AsyncStream<FSChangeEvent> { captured = $0 }
+        guard let continuation = captured else { return stream }
+        eventContinuations[id] = continuation
+        continuation.onTermination = { @Sendable _ in
+            Task { [weak self] in
+                await self?.removeEventContinuation(id)
             }
+        }
+        return stream
+    }
+
+    private func removeEventContinuation(_ id: UUID) {
+        eventContinuations.removeValue(forKey: id)
+    }
+
+    private func emit(_ event: FSChangeEvent) {
+        for continuation in eventContinuations.values {
+            continuation.yield(event)
         }
     }
 
-    private func clearEventContinuation() {
-        eventContinuation = nil
-    }
+    var activeSubscriberCount: Int { eventContinuations.count }
+
+    func registrationCount(for url: URL) -> Int { folderRegistrationCounts[url] ?? 0 }
 
     // MARK: - File Operations
 
@@ -291,19 +323,19 @@ actor FileSyncCoordinator {
         switch event {
             case .created(let url):
                 logger.debug("File created: \(url.lastPathComponent)")
-                eventContinuation?.yield(.created(url))
+                emit(.created(url))
 
             case .modified(let url):
                 logger.debug("File modified: \(url.lastPathComponent)")
-                eventContinuation?.yield(.modified(url))
+                emit(.modified(url))
 
             case .deleted(let url):
                 logger.debug("File deleted: \(url.lastPathComponent)")
-                eventContinuation?.yield(.deleted(url))
+                emit(.deleted(url))
 
             case .renamed(let oldURL, let newURL):
                 logger.debug("File renamed: \(oldURL.lastPathComponent) -> \(newURL.lastPathComponent)")
-                eventContinuation?.yield(.renamed(old: oldURL, new: newURL))
+                emit(.renamed(old: oldURL, new: newURL))
         }
     }
 }

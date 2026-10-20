@@ -53,6 +53,12 @@ public actor FileCoordinator {
     /// Cache of ongoing file operations (for deduplication)
     private var ongoingOperations: [URL: Task<Data, Error>] = [:]
 
+    /// Coordinated mutations block until other presenters relinquish the file.
+    /// Run them off the actor so reads and other callers are not stuck behind a
+    /// slow iCloud or contended write. The queue is serial and work is enqueued
+    /// before the actor suspends, so mutations keep their call order.
+    private static let mutationQueue = DispatchQueue(label: "FileCoordinator.mutations", qos: .userInitiated)
+
     // MARK: - Initialization
 
     private init() {
@@ -169,7 +175,8 @@ public actor FileCoordinator {
     public func coordinatedWrite(url: URL, data: Data) async throws {
         logger.debug("Writing file: \(url.lastPathComponent) (\(data.count) bytes)")
 
-        return try await withCheckedThrowingContinuation { continuation in
+        let logger = self.logger
+        return try await withCheckedThrowingContinuation { continuation in Self.mutationQueue.async {
             var coordinationError: NSError?
             let coordinator = NSFileCoordinator()
 
@@ -196,7 +203,7 @@ public actor FileCoordinator {
                 logger.error("File coordination error: \(coordinationError)")
                 continuation.resume(throwing: FileCoordinatorError.coordinationFailed(coordinationError))
             }
-        }
+        } }
     }
 
     /// Delete a file safely with coordinated access
@@ -207,8 +214,9 @@ public actor FileCoordinator {
     /// - Throws: Error if unable to delete file
     public func deleteFile(url: URL) async throws {
         logger.info("Deleting file: \(url.lastPathComponent)")
+        let logger = self.logger
 
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withCheckedThrowingContinuation { continuation in Self.mutationQueue.async {
             var coordinationError: NSError?
             let coordinator = NSFileCoordinator()
 
@@ -231,7 +239,7 @@ public actor FileCoordinator {
                 logger.error("File coordination error: \(coordinationError)")
                 continuation.resume(throwing: FileCoordinatorError.coordinationFailed(coordinationError))
             }
-        }
+        } }
     }
 
     /// Move a file or directory safely with coordinated access
@@ -245,37 +253,40 @@ public actor FileCoordinator {
     public func coordinatedMove(from source: URL, to destination: URL) async throws {
         logger.info("Moving \(source.lastPathComponent) to \(destination.lastPathComponent)")
 
-        var coordinationError: NSError?
-        var moveError: Error?
-        let coordinator = NSFileCoordinator()
+        let logger = self.logger
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in Self.mutationQueue.async {
+            var coordinationError: NSError?
+            var moveError: Error?
+            let coordinator = NSFileCoordinator()
 
-        coordinator.coordinate(
-            writingItemAt: source,
-            options: .forMoving,
-            writingItemAt: destination,
-            options: .forReplacing,
-            error: &coordinationError
-        ) { coordinatedSourceURL, coordinatedDestinationURL in
-            do {
-                try FileManager.default.moveItem(
-                    at: coordinatedSourceURL,
-                    to: coordinatedDestinationURL
-                )
-                logger.info("Successfully moved \(source.lastPathComponent) to \(destination.lastPathComponent)")
-            } catch {
-                moveError = error
+            coordinator.coordinate(
+                writingItemAt: source,
+                options: .forMoving,
+                writingItemAt: destination,
+                options: .forReplacing,
+                error: &coordinationError
+            ) { coordinatedSourceURL, coordinatedDestinationURL in
+                do {
+                    try FileManager.default.moveItem(
+                        at: coordinatedSourceURL,
+                        to: coordinatedDestinationURL
+                    )
+                    logger.info("Successfully moved \(source.lastPathComponent) to \(destination.lastPathComponent)")
+                } catch {
+                    moveError = error
+                }
             }
-        }
 
-        if let coordinationError {
-            logger.error("File coordination error: \(coordinationError)")
-            throw FileCoordinatorError.coordinationFailed(coordinationError)
-        }
-
-        if let moveError {
-            logger.error("Failed to move file: \(source.lastPathComponent) - \(moveError)")
-            throw FileCoordinatorError.moveFailed(moveError)
-        }
+            if let coordinationError {
+                logger.error("File coordination error: \(coordinationError)")
+                continuation.resume(throwing: FileCoordinatorError.coordinationFailed(coordinationError))
+            } else if let moveError {
+                logger.error("Failed to move file: \(source.lastPathComponent) - \(moveError)")
+                continuation.resume(throwing: FileCoordinatorError.moveFailed(moveError))
+            } else {
+                continuation.resume()
+            }
+        } }
     }
 
     /// Move a file or directory to trash with coordinated access
@@ -287,8 +298,9 @@ public actor FileCoordinator {
     /// - Throws: Error if unable to trash item
     public func coordinatedTrash(url: URL) async throws -> URL? {
         logger.info("Trashing: \(url.lastPathComponent)")
+        let logger = self.logger
 
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withCheckedThrowingContinuation { continuation in Self.mutationQueue.async {
             var coordinationError: NSError?
             let coordinator = NSFileCoordinator()
 
@@ -315,7 +327,7 @@ public actor FileCoordinator {
                 logger.error("File coordination error: \(coordinationError)")
                 continuation.resume(throwing: FileCoordinatorError.coordinationFailed(coordinationError))
             }
-        }
+        } }
     }
 
     /// Create a directory with coordinated access
@@ -331,8 +343,9 @@ public actor FileCoordinator {
         withIntermediateDirectories: Bool = false
     ) async throws {
         logger.info("Creating directory: \(url.lastPathComponent)")
+        let logger = self.logger
 
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withCheckedThrowingContinuation { continuation in Self.mutationQueue.async {
             var coordinationError: NSError?
             let coordinator = NSFileCoordinator()
 
@@ -358,7 +371,7 @@ public actor FileCoordinator {
                 logger.error("File coordination error: \(coordinationError)")
                 continuation.resume(throwing: FileCoordinatorError.coordinationFailed(coordinationError))
             }
-        }
+        } }
     }
 
     // MARK: - Public API - iCloud-Specific Operations

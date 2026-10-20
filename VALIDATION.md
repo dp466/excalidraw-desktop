@@ -1,5 +1,23 @@
 # Fork validation
 
+## Build 134: multi-window file events, file I/O, app-level measurements (2026-10-19)
+
+- App-level benchmark: the real bundled editor and the app's own open, MCP-edit,
+  autosave and close paths, with 3 real repository drawings (991, 840 and
+  292 KB, given the standard envelope they lack), in the in-memory test
+  database. 3 runs each of build 131 code (2abc3294) and build 133: open, MCP
+  edit+save, autosave write and close medians matched within about 10%
+  (e.g. 991 KB drawing: autosave 23/23/23 ms both; MCP edit+save 316–323 vs
+  324–327 ms). Peak native footprint 103.6–130.3 MB vs 102.3–133.5 MB: run-to-run
+  variation (about ±30 MB) exceeds any difference. The editor's separate WebKit
+  process is not included. The earlier path-specific gains do not show up at
+  app level for these image-free drawings.
+- Multi-window file events: the new subscriber test failed on build 131 code
+  ("first window sees the change" unfulfilled, then hung) and passes now.
+- AppState change check on a 6.6 MB scene: 33.3 → 19.5 ms median (15 runs).
+- Full `script/test_local.sh`: 42 plugin, 62 editor, TypeScript, patch checks,
+  **78 XCTest** and **26 Swift Testing** cases passed.
+
 ## Build 133: security, storage-growth fixes and measured gains (2026-10-19)
 
 - Whole-codebase pattern sweep over all 722 Swift files (force casts and

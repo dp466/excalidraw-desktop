@@ -145,16 +145,18 @@ final class ExcalidrawDocumentAppStateSnapshotSaver: @unchecked Sendable {
                 fileID: expectedFileID,
                 core: core
             )
+            if await core.parent?.onPersistSnapshot != nil {
+                if try Self.isAppStateSemanticallyChanged(persistenceAppState, in: content) {
+                    try await core.documentSyncController.persistCurrentAppStateSnapshot(fileID: expectedFileID)
+                }
+                clear()
+                return true
+            }
             guard let contentWithAppState = try Self.mergingAppStateIfSemanticallyChanged(
                 persistenceAppState,
                 into: content,
                 nativeFileName: state.fileName
             ) else {
-                clear()
-                return true
-            }
-            if await core.parent?.onPersistSnapshot != nil {
-                try await core.documentSyncController.persistCurrentAppStateSnapshot(fileID: expectedFileID)
                 clear()
                 return true
             }
@@ -233,18 +235,20 @@ final class ExcalidrawDocumentAppStateSnapshotSaver: @unchecked Sendable {
                 content: content
             )
 #endif
+            if await core.parent?.onPersistSnapshot != nil {
+                // Only meaningful persisted preferences reach here: panning,
+                // selection and transient UI state never trigger a full save.
+                // Snapshot at save time instead of writing stale captured elements;
+                // the merged document would be discarded, so only compare.
+                guard try Self.isAppStateSemanticallyChanged(persistenceAppState, in: content) else { return }
+                core.documentSyncController.schedulePersistentAppStateSnapshot(fileID: expectedFileID)
+                return
+            }
             guard let contentWithAppState = try Self.mergingAppStateIfSemanticallyChanged(
                 persistenceAppState,
                 into: content,
                 nativeFileName: state.fileName
             ) else {
-                return
-            }
-            if await core.parent?.onPersistSnapshot != nil {
-                // Only meaningful persisted preferences reach here: panning,
-                // selection and transient UI state never trigger a full save.
-                // Snapshot at save time instead of writing stale captured elements.
-                core.documentSyncController.schedulePersistentAppStateSnapshot(fileID: expectedFileID)
                 return
             }
             await MainActor.run {
@@ -361,7 +365,26 @@ final class ExcalidrawDocumentAppStateSnapshotSaver: @unchecked Sendable {
         latestViewportDirty = false
     }
 
-    private static func mergingAppStateIfSemanticallyChanged(
+    /// Same decision as `mergingAppStateIfSemanticallyChanged` returning non-nil,
+    /// without building and serializing the merged document.
+    static func isAppStateSemanticallyChanged(
+        _ appState: ExcalidrawCore.JSONValue,
+        in content: Data
+    ) throws -> Bool {
+        let appStateObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(appState))
+        guard let contentObject = try JSONSerialization.jsonObject(with: content) as? [String: Any] else {
+            return true
+        }
+        let existing = ExcalidrawDocumentAppStatePersistence.appStateObjectByKeepingAppStateOnlyPersistentFields(
+            from: contentObject["appState"] ?? [String: Any]()
+        )
+        let incoming = ExcalidrawDocumentAppStatePersistence.appStateObjectByKeepingAppStateOnlyPersistentFields(
+            from: appStateObject
+        )
+        return try normalizedJSONData(existing) != normalizedJSONData(incoming)
+    }
+
+    static func mergingAppStateIfSemanticallyChanged(
         _ appState: ExcalidrawCore.JSONValue,
         into content: Data,
         nativeFileName: String?

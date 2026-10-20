@@ -41,6 +41,8 @@ xcodebuild -project "$SOURCE_ROOT/ExcalidrawZ.xcodeproj" -scheme ExcalidrawZ -co
   -only-testing:ExcalidrawZTests/EditorServerContainmentTests \
   -only-testing:ExcalidrawZTests/CheckpointRetentionTests \
   -only-testing:ExcalidrawZTests/PreviewCachePressureTests \
+  -only-testing:ExcalidrawZTests/FileSyncCoordinatorTests \
+  -only-testing:ExcalidrawZTests/AppStateSemanticChangeTests \
   -only-testing:ExcalidrawZTests/LocalFeaturePolicyTests \
   -only-testing:ExcalidrawZTests/LocalFolderContentsLoaderTests \
   -only-testing:ExcalidrawZTests/ActiveFileSnapshotFlushGateTests \
