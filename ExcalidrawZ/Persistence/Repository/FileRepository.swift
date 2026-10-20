@@ -551,13 +551,15 @@ actor FileRepository {
                 throw AppError.fileError(.notFound)
             }
 
-            var name = file.name ?? String(localizable: .generalUntitled)
+            // "/" or ":" in a name would point into a missing folder.
+            let baseName = Self.diskSafeName(file.name ?? String(localizable: .generalUntitled))
+            var name = baseName
             // Check for existing files and add number suffix if needed
             var i = 1
             while fileManager.fileExists(
                 atPath: folderURL.appendingPathComponent(name, conformingTo: .excalidrawFile).filePath
             ) {
-                name = (file.name ?? String(localizable: .generalUntitled)) + " (\(i))"
+                name = baseName + " (\(i))"
                 i += 1
             }
 
@@ -569,7 +571,13 @@ actor FileRepository {
 
         // Step 3: Create file on disk
         let fileURL = folderURL.appendingPathComponent(fileName, conformingTo: .excalidrawFile)
-        fileManager.createFile(atPath: fileURL.filePath, contents: content)
+        // Callers may delete the library copy afterwards: a failed write must throw.
+        try content.write(to: fileURL, options: .withoutOverwriting)
+    }
+
+    static func diskSafeName(_ name: String) -> String {
+        let safe = name.components(separatedBy: CharacterSet(charactersIn: "/:")).joined(separator: "-")
+        return safe.isEmpty ? String(localizable: .generalUntitled) : safe
     }
 
     // MARK: - Delete File

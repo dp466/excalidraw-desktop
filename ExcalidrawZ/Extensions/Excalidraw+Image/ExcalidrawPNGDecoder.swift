@@ -69,36 +69,33 @@ class ExcalidrawPNGDecoder: ExcalidrawImageDecoder {
 }
 
 extension ExcalidrawPNGDecoder {
+    /// Files come from linked folders, drops and Quick Look: a truncated or
+    /// malformed PNG must end the scan, not read past the data.
     private func parsePNGChunks(from data: Data) -> [PNGChunk] {
+        let bytes = [UInt8](data)
+        func uint32(at offset: Int) -> UInt32? {
+            guard offset >= 0, offset + 4 <= bytes.count else { return nil }
+            return bytes[offset..<(offset + 4)].reduce(0) { ($0 << 8) | UInt32($1) }
+        }
+
         var chunks: [PNGChunk] = []
         var offset = 8 // 跳过 PNG 文件的前 8 个字节（文件头部）
 
-        while offset < data.count {
-            // 读取 chunk 长度（4 字节）
-            let length = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes {
-                $0.load(as: UInt32.self).bigEndian
-            }
-            offset += 4
-            
-            // 读取 chunk 类型（4 字节）
-            let typeData = data.subdata(in: offset..<(offset + 4))
-            guard let type = String(data: typeData, encoding: .ascii) else { break }
-            offset += 4
-            
-            // 读取 chunk 数据
-            let chunkData = data.subdata(in: offset..<(offset + Int(length)))
-            offset += Int(length)
-            
-            // 读取 CRC 校验码（4 字节）
-            let crc = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes {
-                $0.load(as: UInt32.self).bigEndian
-            }
-            offset += 4
-            
-            // 添加解析后的 chunk
-            chunks.append(PNGChunk(length: length, type: type, data: chunkData, crc: crc))
+        while offset + 8 <= bytes.count {
+            guard let length = uint32(at: offset),
+                  let type = String(bytes: bytes[(offset + 4)..<(offset + 8)], encoding: .ascii) else { break }
+            let dataStart = offset + 8
+            let (dataEnd, overflow) = dataStart.addingReportingOverflow(Int(length))
+            guard !overflow, dataEnd + 4 <= bytes.count, let crc = uint32(at: dataEnd) else { break }
+            chunks.append(PNGChunk(
+                length: length,
+                type: type,
+                data: Data(bytes[dataStart..<dataEnd]),
+                crc: crc
+            ))
+            offset = dataEnd + 4
         }
-        
+
         return chunks
     }
 

@@ -62,12 +62,9 @@ extension ExcalidrawSVGDecoder {
             return nil
         }
 
-        // 将每个字节解码为 ASCII 字符
-        let asciiString = data.reduce("") { (result, byte) in
-            result + String(UnicodeScalar(byte))
-        }
-
-        return asciiString
+        // Each byte becomes the character with the same code point, which is
+        // exactly Latin-1; one conversion instead of a string per byte.
+        return String(data: data, encoding: .isoLatin1)
     }
 
 }

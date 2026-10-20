@@ -329,15 +329,17 @@ struct RecentlyFilesProvider: View {
         }
         
         // Local files
-        for folder in localFolders {
+        // Subfolders are LocalFolder rows too, and a deep scan of each root
+        // already covers them: scanning every row visited nested files again
+        // for each level, on the main thread at every app activation.
+        for folder in localFolders where folder.parent == nil {
             do {
                 let filesAndModificationDates: [(URL, Date)] = try folder.getFiles(
                     deep: true,
                     properties: [.contentModificationDateKey, .creationDateKey]
                 ) { url in
-                    let modifiedDate = try url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate ?? .distantPast
-                    let creationDate = try url.resourceValues(forKeys: [.creationDateKey]).creationDate ?? .distantPast
-                    return (url, max(modifiedDate, creationDate))
+                    let values = try url.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey])
+                    return (url, max(values.contentModificationDate ?? .distantPast, values.creationDate ?? .distantPast))
                 }
                 
                 filesAndModificationDates.forEach { (url, date) in

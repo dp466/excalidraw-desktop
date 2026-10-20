@@ -244,7 +244,7 @@ actor ICloudStatusMonitor {
         
         guard !files.isEmpty else { return }
         
-        logger.info("Polling \(files.count) \(level) files")
+        logger.debug("Polling \(files.count) \(level) files")
         
         // Check status for each file
         for fileURL in files {

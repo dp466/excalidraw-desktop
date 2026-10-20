@@ -41,6 +41,8 @@ xcodebuild -project "$SOURCE_ROOT/ExcalidrawZ.xcodeproj" -scheme ExcalidrawZ -co
   -only-testing:ExcalidrawZTests/EditorServerContainmentTests \
   -only-testing:ExcalidrawZTests/SaveStreamOrderingTests \
   -only-testing:ExcalidrawZTests/MCPNumberBoundsTests \
+  -only-testing:ExcalidrawZTests/ExportToDiskTests \
+  -only-testing:ExcalidrawZTests/ImageSceneDecoderTests \
   -only-testing:ExcalidrawZTests/TransferableFileNameTests \
   -only-testing:ExcalidrawZTests/ImportFilesTests \
   -only-testing:ExcalidrawZTests/AIToolNumberBoundsTests \

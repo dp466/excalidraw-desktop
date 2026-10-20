@@ -319,9 +319,9 @@ func archiveAllCloudFiles(
         let files = groupFiles.value
         var groupURL = url
         for ancestor in group.ancestors {
-            groupURL = groupURL.appendingPathComponent(ancestor.name ?? "Untitled", conformingTo: .directory)
+            groupURL = groupURL.appendingPathComponent(FileRepository.diskSafeName(ancestor.name ?? "Untitled"), conformingTo: .directory)
         }
-        groupURL = groupURL.appendingPathComponent(group.group.name ?? "Untitled", conformingTo: .directory)
+        groupURL = groupURL.appendingPathComponent(FileRepository.diskSafeName(group.group.name ?? "Untitled"), conformingTo: .directory)
         if !filemanager.fileExists(at: groupURL) {
             try filemanager.createDirectory(at: groupURL, withIntermediateDirectories: true)
         }
@@ -337,7 +337,7 @@ func archiveAllCloudFiles(
                     continue
                 }
                 var index = 1
-                var filename = archiveData.name
+                var filename = FileRepository.diskSafeName(archiveData.name)
                 var fileURL: URL = groupURL.appendingPathComponent(filename, conformingTo: .fileURL).appendingPathExtension("excalidraw")
                 var retryCount = 0
                 while filemanager.fileExists(at: fileURL), retryCount < 100 {
@@ -352,8 +352,10 @@ func archiveAllCloudFiles(
                     retryCount += 1
                 }
                 let filePath: String = fileURL.filePath
-                if !filemanager.createFile(atPath: filePath, contents: archiveData.content) {
+                // A drawing missing from an archive must be reported, not only logged.
+                guard filemanager.createFile(atPath: filePath, contents: archiveData.content) else {
                     archiveFilesLogger.error("Failed to export file to \(filePath)")
+                    throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: filePath])
                 }
             } catch {
                 errorDuringArchive = error
@@ -471,9 +473,9 @@ func backupAllCloudFiles(
         let files = groupFiles.value
         var groupURL = url
         for ancestor in group.ancestors {
-            groupURL = groupURL.appendingPathComponent(ancestor.name ?? "Untitled", conformingTo: .directory)
+            groupURL = groupURL.appendingPathComponent(FileRepository.diskSafeName(ancestor.name ?? "Untitled"), conformingTo: .directory)
         }
-        groupURL = groupURL.appendingPathComponent(group.group.name ?? "Untitled", conformingTo: .directory)
+        groupURL = groupURL.appendingPathComponent(FileRepository.diskSafeName(group.group.name ?? "Untitled"), conformingTo: .directory)
         if !filemanager.fileExists(at: groupURL) {
             try filemanager.createDirectory(at: groupURL, withIntermediateDirectories: true)
         }
@@ -488,7 +490,7 @@ func backupAllCloudFiles(
                     continue
                 }
                 var index = 1
-                var filename = archiveData.name
+                var filename = FileRepository.diskSafeName(archiveData.name)
                 var fileURL: URL = groupURL.appendingPathComponent(filename, conformingTo: .fileURL).appendingPathExtension("excalidraw")
                 var retryCount = 0
                 while filemanager.fileExists(at: fileURL), retryCount < 100 {

@@ -1,5 +1,16 @@
 # Fork validation
 
+## Build 141: export data loss, decoder crash, remaining-area review (2026-10-20)
+
+- Confirmed on build 140: `FileRepository.exportToDisk` wrote nothing for a
+  drawing named "Q3/Q4: plan" and did not throw, and writing into a missing
+  folder did not throw (`ExportToDiskTests` failed twice). The drag-to-folder
+  move then deleted the library copy permanently. Fixed and passing.
+- `ImageSceneDecoderTests`: a truncated PNG chunk crashed the test process on
+  build 140; passes now. SVG payload 300 KB: 0.732 s → 0.050 s.
+- Full `script/test_local.sh` under `caffeinate -du`: 42 plugin, 62 editor,
+  **111 XCTest** and **26 Swift Testing** cases passed.
+
 ## Build 140: MCP, settings, sidebar and import review (2026-10-20)
 
 - Confirmed on build 139 before fixing: multi-file import with no selected

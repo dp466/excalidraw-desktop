@@ -996,6 +996,10 @@ final class ExcalidrawMCPAppBridge {
                 folders = [try Self.localFolder(from: rawFolderID, context: context)]
             } else {
                 let request = NSFetchRequest<LocalFolder>(entityName: "LocalFolder")
+                // A deep listing of each root already includes its subfolders.
+                if deep {
+                    request.predicate = NSPredicate(format: "parent == nil")
+                }
                 request.sortDescriptors = [
                     NSSortDescriptor(key: "rank", ascending: true),
                     NSSortDescriptor(key: "filePath", ascending: true)

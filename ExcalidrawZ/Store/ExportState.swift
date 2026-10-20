@@ -141,7 +141,9 @@ final class ExportState: ObservableObject {
         
         let directory: URL = try getTempDirectory()
         let filename = name
-        let url = directory.appendingPathComponent(filename, conformingTo: utType)
+        // "/" or ":" in a drawing name would point into a missing folder.
+        let safeName = name.components(separatedBy: CharacterSet(charactersIn: "/:")).joined(separator: "-")
+        let url = directory.appendingPathComponent(safeName.isEmpty ? "Untitled" : safeName, conformingTo: utType)
         try imageData.write(to: url)
         
         return ExportedImageData(

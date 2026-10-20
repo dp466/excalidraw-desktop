@@ -4,6 +4,14 @@ This changelog covers the ExcalidrawDesktop fork. Historical ExcalidrawZ release
 
 ## Unreleased
 
+### Local build 141
+
+- Fixed data loss when dragging a library drawing or group onto a linked folder with "also delete the original" checked. The original was permanently deleted even when the copy failed, and a drawing named with "/" or ":" was never written at all. The original is now deleted only after the copy is written.
+- "Archive all files" no longer silently leaves out drawings whose names contain "/" or ":"; a file that cannot be written is reported.
+- Fixed a crash on truncated or malformed `.excalidraw.png` files (linked folders, opening, Quick Look). Large `.excalidraw.svg` scenes decode much faster (300 KB payload: 0.73 → 0.05 s).
+- Image export works for drawing names containing "/" or ":".
+- Lighter Home and MCP listings: recent drawings scan each linked folder once instead of once per subfolder level, on every app activation. The PDF insert sheet no longer redraws every page thumbnail when an option changes.
+
 ### Local build 140
 
 - Fixed crashes:

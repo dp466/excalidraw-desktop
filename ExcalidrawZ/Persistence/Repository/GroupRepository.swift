@@ -41,12 +41,13 @@ actor GroupRepository {
         }
 
         // Create folder with unique name
-        var folderName = groupName
+        let safeGroupName = FileRepository.diskSafeName(groupName)
+        var folderName = safeGroupName
         var i = 1
         while fileManager.fileExists(
             atPath: folderURL.appendingPathComponent(folderName).filePath
         ) {
-            folderName = groupName + " (\(i))"
+            folderName = safeGroupName + " (\(i))"
             i += 1
         }
 

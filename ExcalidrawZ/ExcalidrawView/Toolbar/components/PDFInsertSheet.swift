@@ -681,20 +681,31 @@ struct PDFInsertSheet: View {
 #if canImport(PDFKit)
 struct PDFPageView: View {
     let page: PDFPage
-    
+
+    /// Rasterized once per size; rendering in `body` redrew every page on
+    /// each update of the sheet's options.
+    @State private var image: PlatformImage?
+
     var body: some View {
         GeometryReader { geometry in
-            let image = page.thumbnail(of: geometry.size, for: .mediaBox)
+            ZStack {
+                if let image {
 #if os(macOS)
-            Image(nsImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
 #else
-            Image(uiImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
 #endif
-            
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .task(id: geometry.size) {
+                guard geometry.size.width > 0, geometry.size.height > 0 else { return }
+                image = page.thumbnail(of: geometry.size, for: .mediaBox)
+            }
         }
     }
 }

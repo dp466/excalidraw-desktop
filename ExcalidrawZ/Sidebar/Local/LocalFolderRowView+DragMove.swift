@@ -218,7 +218,7 @@ struct LocalFolderDropModifier: ViewModifier {
         }
         
         do {
-            try await folder.withSecurityScopedURL { scopedURL in
+            let didExport = try await folder.withSecurityScopedURL { scopedURL in
                 let fileCoordinator = NSFileCoordinator()
                 return await withCheckedContinuation { continuation in
                     fileCoordinator.coordinate(
@@ -242,6 +242,8 @@ struct LocalFolderDropModifier: ViewModifier {
                 }
             }
 
+            // Never delete the library group unless every file was written.
+            guard didExport else { return false }
             if delete {
                 try await PersistenceController.shared.groupRepository.delete(
                     groupObjectID: group.objectID,
@@ -280,7 +282,7 @@ struct LocalFolderDropModifier: ViewModifier {
         }
         
         do {
-            try await folder.withSecurityScopedURL { (scopedURL: URL) async -> Void in
+            let didExport = try await folder.withSecurityScopedURL { (scopedURL: URL) async -> Bool in
                 let fileCoordinator = NSFileCoordinator()
                 return await withCheckedContinuation { continuation in
                     fileCoordinator.coordinate(
@@ -294,16 +296,18 @@ struct LocalFolderDropModifier: ViewModifier {
                                     fileObjectID: file.objectID,
                                     folder: url
                                 )
-                                continuation.resume()
+                                continuation.resume(returning: true)
                             } catch {
                                 alertToast(error)
-                                continuation.resume()
+                                continuation.resume(returning: false)
                             }
                         }
                     }
                 }
             }
 
+            // A failed export must keep the library file.
+            guard didExport else { return false }
             if delete {
                 try await PersistenceController.shared.fileRepository.delete(
                     fileObjectID: file.objectID,
