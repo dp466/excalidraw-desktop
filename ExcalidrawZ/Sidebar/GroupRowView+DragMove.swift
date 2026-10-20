@@ -182,6 +182,29 @@ struct GroupRowDropModifier: ViewModifier {
                     self.importLocalFileSuccessCallback?(false)
                 }
             }
+            .sheet(
+                isPresented: Binding {
+                    collaborationFileWillBeImported != nil
+                } set: { val in
+                    if !val {
+                        collaborationFileWillBeImported = nil
+                    }
+                }
+            ) {
+                DropToGroupSheetView(
+                    object: collaborationFileWillBeImported!,
+                    title: "Import collaboration room",
+                    message: "",
+                    deleteOldSourceLabel: "Also delete the original collaboration room"
+                ) { roomID, delete in
+                    Task {
+                        let success = await performImportCollaborationFile(id: roomID, delete: delete, context: viewContext)
+                        self.importCollaborationFileSuccessCallback?(success)
+                    }
+                } onCancel: {
+                    self.importCollaborationFileSuccessCallback?(false)
+                }
+            }
     }
     
     
@@ -359,7 +382,8 @@ struct GroupRowDropModifier: ViewModifier {
 
             if case .file(_, let fileID) = result {
                 await MainActor.run {
-                    if fileState.currentActiveFile?.id == roomID.description {
+                    if case .collaborationFile(let room) = fileState.currentActiveFile,
+                       room.objectID == roomID {
                         fileState.currentActiveGroup = .group(self.group)
                         if let file = viewContext.object(with: fileID) as? File {
                             fileState.setActiveFile(.file(file))
@@ -372,6 +396,7 @@ struct GroupRowDropModifier: ViewModifier {
             }
             return false
         } catch {
+            alertToast(error)
             return false
         }
     }
@@ -420,6 +445,10 @@ struct DropToGroupSheetView<T: Sendable>: View {
     var deleteOldSourceLabel: LocalizedStringKey
     var onConfirm: (_ object: T, _ delete: Bool) -> Void
     var onCancel: () -> Void
+
+    /// Callers wait on onConfirm or onCancel, so a dismissal by Cancel,
+    /// Escape or a swipe must still report exactly one outcome.
+    @State private var didConfirm = false
     
     init(
         object: T,
@@ -458,6 +487,7 @@ struct DropToGroupSheetView<T: Sendable>: View {
                     .buttonBorderShape(.capsule)
 
                     Button {
+                        didConfirm = true
                         onConfirm(object, alsoDeleteOldFileOnImport)
                         dismiss()
                     } label: {
@@ -475,6 +505,7 @@ struct DropToGroupSheetView<T: Sendable>: View {
                     }
                     
                     Button {
+                        didConfirm = true
                         onConfirm(object, alsoDeleteOldFileOnImport)
                         dismiss()
                     } label: {
@@ -488,5 +519,10 @@ struct DropToGroupSheetView<T: Sendable>: View {
         }
         .padding(20)
         .frame(width: 360)
+        .onDisappear {
+            if !didConfirm {
+                onCancel()
+            }
+        }
     }
 }

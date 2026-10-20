@@ -95,9 +95,11 @@ actor UnlockTriggeredBackupCoordinator {
                 currentGroup = group.parent
             }
 
+            // Same names as the backup writer, which makes them disk-safe; raw
+            // names with "/" or ":" never matched and re-ran the backup.
             return (
-                groupPath: groups.map { $0.name ?? "Untitled" },
-                fileName: file.name ?? fallbackFileName
+                groupPath: groups.map { FileRepository.diskSafeName($0.name ?? "Untitled") },
+                fileName: FileRepository.diskSafeName(file.name ?? fallbackFileName)
             )
         }
 

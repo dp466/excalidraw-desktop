@@ -18,18 +18,14 @@ actor SyncQueue {
 
     // MARK: - Initialization
 
-    init() {
-        // Load queue from persistent storage
-        Task {
-            await loadQueue()
-        }
-    }
+    init() {}
 
     // MARK: - Queue Operations
 
     /// Enqueue a sync event with priority-based insertion
     /// High priority events are inserted at the front, normal priority at the back
     func enqueue(_ event: SyncEvent) {
+        loadQueue()
         if event.priority == .high {
             // High priority: Insert at the beginning (or after other high priority items)
             // Find the first normal priority item
@@ -49,6 +45,7 @@ actor SyncQueue {
     /// Dequeue the first event from the queue
     /// - Returns: The first event, or nil if queue is empty
     func dequeueFirst() -> SyncEvent? {
+        loadQueue()
         guard !queue.isEmpty else { return nil }
         let event = queue.removeFirst()
         saveQueue()
@@ -57,40 +54,48 @@ actor SyncQueue {
 
     /// Dequeue a specific event
     func dequeue(_ event: SyncEvent) {
+        loadQueue()
         queue.removeAll { $0.id == event.id }
         saveQueue()
     }
 
     /// Remove multiple events by IDs
     func removeEvents(withIDs ids: Set<UUID>) {
+        loadQueue()
         queue.removeAll { ids.contains($0.id) }
         saveQueue()
     }
 
     /// Get all queued events
     func getAll() -> [SyncEvent] {
+        loadQueue()
         return queue
     }
 
     /// Get queue count
     func count() -> Int {
+        loadQueue()
         return queue.count
     }
 
     /// Check if queue is empty
     func isEmpty() -> Bool {
+        loadQueue()
         return queue.isEmpty
     }
 
     /// Clear all events
     func clear() {
+        loadQueue()
         queue.removeAll()
         saveQueue()
     }
 
     // MARK: - Persistence
 
-    /// Load queue from UserDefaults
+    /// Load queue from UserDefaults. Called by every operation: loading from
+    /// an unawaited task in `init` let an early enqueue be replaced by the
+    /// persisted queue, or its save erase that queue.
     private func loadQueue() {
         guard !isLoaded else { return }
 

@@ -22,16 +22,19 @@ struct AutoContainVideoPlayer: View {
     
     @State private var videoDimension: CGSize?
     @State private var error: Error?
+    /// Created once: building an AVPlayer in `body` made a new player (and
+    /// restarted loading) on every view update.
+    @State private var player: AVPlayer?
     
     var body: some View {
         ZStack {
             if let videoDimension {
-                VideoPlayer(
-                    player: AVPlayer(
-                        url: url
-                    )
-                )
+                VideoPlayer(player: player)
                 .scaleToContain(baseAxis: baseAxis, orginSize: videoDimension)
+                .onAppear {
+                    if player == nil { player = AVPlayer(url: url) }
+                }
+                .onDisappear { player?.pause() }
             } else if let error {
                 Color.gray
                     .overlay {
@@ -125,8 +128,8 @@ struct AutoFitModifier: ViewModifier {
     }
     
     private func calSize() {
-        // get video dimension
-        guard let dimension = orginSize() else { return }
+        // get video dimension; a zero side would make an infinite frame.
+        guard let dimension = orginSize(), dimension.width > 0, dimension.height > 0 else { return }
         
         switch baseAxis {
             case .horizontal:

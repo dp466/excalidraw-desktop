@@ -159,7 +159,7 @@ struct CanvasSettingsInspectorContent: View {
                 isOn: toolLockBinding
             )
             toggleRow(
-                String(localizable: .canvasPreferencesSnapToMidpointsTitle),
+                String(localizable: .canvasPreferencesStickToObjectsTitle),
                 shortcut: "⌥S",
                 isOn: $canvasPrefs.objectsSnapModeEnabled
             )

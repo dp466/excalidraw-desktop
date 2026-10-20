@@ -204,7 +204,12 @@ extension FileState {
     ) async throws -> RecordedAICheckpoint? {
         switch file {
             case .file(let f):
-                let content = try await f.loadContent()
+                let content: Data
+                if let live = await liveCanvasContent(for: file) {
+                    content = live
+                } else {
+                    content = try await f.loadContent()
+                }
                 let checkpointID = try await PersistenceController.shared.fileRepository.recordCheckpoint(
                     fileObjectID: f.objectID,
                     content: content,
@@ -216,6 +221,7 @@ extension FileState {
             case .localFile(let url):
                 let checkpointID = try await snapshotLocalFile(
                     url: url,
+                    liveContent: await liveCanvasContent(for: file),
                     source: source,
                     description: description
                 )
@@ -320,6 +326,19 @@ extension FileState {
                     (.file, .local), (.localFile, .file), (.cloudStorageFile, .file):
                 return
         }
+    }
+
+    /// The editor's scene when it shows `file`. Saving is throttled, so the
+    /// stored copy can miss the last edits before an AI round (or the AI's
+    /// last changes after it), and reverting would then drop them.
+    @MainActor
+    private func liveCanvasContent(for file: ActiveFile) async -> Data? {
+        guard currentActiveFile?.id == file.id,
+              let coordinator = excalidrawWebCoordinator,
+              coordinator.documentSyncController.currentLoadedFileID == file.id else {
+            return nil
+        }
+        return try? await CurrentExcalidrawDataResolver.resolve(fileState: self, canvasTarget: .normal)
     }
 
     @MainActor
@@ -455,10 +474,16 @@ extension FileState {
     @MainActor
     private func snapshotLocalFile(
         url: URL,
+        liveContent: Data?,
         source: FileCheckpointSource,
         description: String?
     ) async throws -> UUID {
-        let data = try await FileSyncCoordinator.shared.openFile(url)
+        let data: Data
+        if let liveContent {
+            data = liveContent
+        } else {
+            data = try await FileSyncCoordinator.shared.openFile(url)
+        }
 
         let context = PersistenceController.shared.container.newBackgroundContext()
         return try await context.perform {

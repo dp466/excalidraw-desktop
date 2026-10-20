@@ -119,13 +119,13 @@ class LocalFileUtils {
                     return enumerator.compactMap { $0 as? URL }
                 }()
 
-                let fileMappings = allFiles.map { file -> (source: URL, destination: URL) in
-                    // get the changed folder
-                    let relativePath = file.filePath.suffix(from: sourceURL.filePath.endIndex)
-                    let fileNewURL = if #available(macOS 13.0, *) {
-                        newURL.appending(path: relativePath)
-                    } else {
-                        newURL.appendingPathComponent(String(relativePath))
+                // An index from one string is not valid in another; compare
+                // paths instead (the enumerator may also resolve symlinks).
+                let resolvedSourceURL = sourceURL.resolvingSymlinksInPath()
+                let fileMappings = allFiles.compactMap { file -> (source: URL, destination: URL)? in
+                    guard let fileNewURL = file.rebased(from: sourceURL, to: newURL)
+                            ?? file.resolvingSymlinksInPath().rebased(from: resolvedSourceURL, to: newURL) else {
+                        return nil
                     }
                     return (file, fileNewURL)
                 }

@@ -167,7 +167,9 @@ struct LibrarySectionHeader: View {
                     try bgContext.save()
                 }
             } catch {
-                alertToast(error)
+                await MainActor.run {
+                    alertToast(error)
+                }
             }
         }
     }
@@ -187,7 +189,9 @@ struct LibrarySectionHeader: View {
                     try context.save()
                 }
             } catch {
-                alertToast(error)
+                await MainActor.run {
+                    alertToast(error)
+                }
             }
         }
     }

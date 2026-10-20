@@ -497,7 +497,7 @@ extension WhatsNewView {
                             description: .localizable(.whatsNewFallbackExcalifontDescription),
                             icon: Image(systemSymbol: .characterCursorIbeam)
                         ) {
-                            if let url = URL(string: "https://pub-2983ae3d3c894bd08530707492e919db.r2.dev/Fallback Excalifont 720p.mov") {
+                            if let url = URL(string: "https://pub-2983ae3d3c894bd08530707492e919db.r2.dev/Fallback%20Excalifont%20720p.mov") {
                                 if #available(macOS 13.0, iOS 16.0, *) {
                                     NavigationLink(value: Route.video(url)) {
                                         WhatsNewRowMediaPreviewView(url: url)

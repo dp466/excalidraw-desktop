@@ -27,7 +27,12 @@ struct OrphanCleaner {
         localFiles: [SyncFileState],
         iCloudFiles: [SyncFileState]
     ) async {
-        let validFileIDs = await getValidFileIDs()
+        // Deleting is irreversible (and reaches iCloud): without a complete
+        // ID list, an unreadable category would look entirely orphaned.
+        guard let validFileIDs = await getValidFileIDs() else {
+            logger.warning("Skipping orphan cleanup: could not read the stored file IDs")
+            return
+        }
         var deletedCount = 0
 
         // Clean up local orphaned files
@@ -56,12 +61,13 @@ struct OrphanCleaner {
     // MARK: - Helper Methods
 
     /// Get all valid file IDs from CoreData entities
-    private func getValidFileIDs() async -> [FileStorageContentType: Set<String>] {
+    private func getValidFileIDs() async -> [FileStorageContentType: Set<String>]? {
         let context = PersistenceController.shared.newTaskContext()
 
         // All CoreData operations must run on the context's queue
         return await context.perform {
             var result: [FileStorageContentType: Set<String>] = [:]
+            var didFail = false
 
             // Fetch File IDs
             do {
@@ -72,7 +78,7 @@ struct OrphanCleaner {
                 let fileIDs = fileResults.compactMap { ($0["id"] as? UUID)?.uuidString }
                 result[.file] = Set(fileIDs)
             } catch {
-                result[.file] = Set()
+                didFail = true
             }
 
             // Fetch CollaborationFile IDs
@@ -84,7 +90,7 @@ struct OrphanCleaner {
                 let collabIDs = collabResults.compactMap { ($0["id"] as? UUID)?.uuidString }
                 result[.collaborationFile] = Set(collabIDs)
             } catch {
-                result[.collaborationFile] = Set()
+                didFail = true
             }
 
             // Fetch FileCheckpoint IDs
@@ -96,7 +102,7 @@ struct OrphanCleaner {
                 let checkpointIDs = checkpointResults.compactMap { ($0["id"] as? UUID)?.uuidString }
                 result[.checkpoint] = Set(checkpointIDs)
             } catch {
-                result[.checkpoint] = Set()
+                didFail = true
             }
 
             // Fetch MediaItem IDs
@@ -108,21 +114,22 @@ struct OrphanCleaner {
                 let mediaIDs = mediaResults.compactMap { $0["id"] as? String }
                 result[.mediaItem(extension: "")] = Set(mediaIDs)
             } catch {
-                result[.mediaItem(extension: "")] = Set()
+                didFail = true
             }
 
             // Fetch AI chat attachment IDs from message-level persisted file records.
             // These files are not represented by a standalone Core Data entity; their
             // ownership lives in AIConversationMessage.filesData.
             do {
-                let messageRequest = NSFetchRequest<AIConversationMessage>(entityName: "AIConversationMessage")
+                let messageRequest = NSFetchRequest<NSDictionary>(entityName: "AIConversationMessage")
+                messageRequest.resultType = .dictionaryResultType
                 messageRequest.predicate = NSPredicate(format: "filesData != nil")
                 messageRequest.propertiesToFetch = ["filesData"]
 
                 let messages = try context.fetch(messageRequest)
                 let decoder = JSONDecoder()
                 let attachmentIDs = messages
-                    .compactMap(\.filesData)
+                    .compactMap { $0["filesData"] as? Data }
                     .flatMap { data -> [String] in
                         guard let persistedFiles = try? decoder.decode([PersistedFile].self, from: data) else {
                             return []
@@ -134,10 +141,10 @@ struct OrphanCleaner {
                     }
                 result[.aiChatAttachment(extension: "")] = Set(attachmentIDs)
             } catch {
-                result[.aiChatAttachment(extension: "")] = Set()
+                didFail = true
             }
 
-            return result
+            return didFail ? nil : result
         }
     }
 

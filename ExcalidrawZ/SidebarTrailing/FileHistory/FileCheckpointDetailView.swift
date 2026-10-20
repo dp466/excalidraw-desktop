@@ -55,8 +55,7 @@ struct FileCheckpointDetailView<Checkpoint: FileCheckpointRepresentable>: View {
                 if #available(macOS 26.0, iOS 26.0, *) {
                     HStack {
                         Button {
-                            viewContext.delete(checkpoint)
-                            dismiss()
+                            deleteCheckpoint()
                         } label: {
                             Image(systemSymbol: .trash)
                                 .foregroundStyle(.red)
@@ -76,8 +75,7 @@ struct FileCheckpointDetailView<Checkpoint: FileCheckpointRepresentable>: View {
                 } else {
                     HStack {
                         Button {
-                            viewContext.delete(checkpoint)
-                            dismiss()
+                            deleteCheckpoint()
                         } label: {
                             Image(systemSymbol: .trash)
                                 .foregroundStyle(.red)
@@ -164,6 +162,33 @@ struct FileCheckpointDetailView<Checkpoint: FileCheckpointRepresentable>: View {
                 )
                 await MainActor.run {
                     dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    alertToast(error)
+                }
+            }
+        }
+    }
+
+    /// Deletes through a saving context. A `FileCheckpoint` also owns a
+    /// content file in local + iCloud storage, which the repository removes.
+    private func deleteCheckpoint() {
+        let objectID = checkpoint.objectID
+        let isFileCheckpoint = checkpoint is FileCheckpoint
+        dismiss()
+        Task {
+            do {
+                if isFileCheckpoint {
+                    try await PersistenceController.shared.checkpointRepository
+                        .deleteCheckpoint(checkpointObjectID: objectID)
+                } else {
+                    let context = PersistenceController.shared.newTaskContext()
+                    try await context.perform {
+                        guard let object = try? context.existingObject(with: objectID) else { return }
+                        context.delete(object)
+                        try context.save()
+                    }
                 }
             } catch {
                 await MainActor.run {

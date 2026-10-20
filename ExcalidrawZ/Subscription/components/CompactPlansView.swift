@@ -24,7 +24,7 @@ struct CompactPlansView: View {
                         Image(systemSymbol: .checkmark)
                             .symbolVariant(.circle)
                             .foregroundStyle(.green)
-                        Text(try! AttributedString(markdown: feature))
+                        Text((try? AttributedString(markdown: feature)) ?? AttributedString(feature))
                     }
                 }
             }

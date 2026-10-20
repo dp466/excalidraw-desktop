@@ -139,8 +139,16 @@ class FileStatusService {
 
     private init() {}
 
+    /// Every load and sync step reports status; rescanning all boxes for each
+    /// one made large syncs quadratic. Coalesce into one rescan per main-actor turn.
     private func refreshSyncState() {
-        syncState.updateSyncingFiles(from: Array(statusBoxes.values))
+        guard !isSyncStateRefreshScheduled else { return }
+        isSyncStateRefreshScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            self.isSyncStateRefreshScheduled = false
+            self.syncState.updateSyncingFiles(from: Array(self.statusBoxes.values))
+        }
     }
 
     /// Get or create status box for file identifier
@@ -157,17 +165,9 @@ class FileStatusService {
 
         // Subscribe to box changes to update syncState
         subscriptions[fileID] = box.objectWillChange.sink { [weak self] in
-            guard let self = self else { return }
-            // `objectWillChange` fires before the new status is stored. Hop to
-            // the next main-actor turn so aggregate sync debug state is current.
-            // Coalesce a burst of box changes into one rescan.
-            guard !self.isSyncStateRefreshScheduled else { return }
-            self.isSyncStateRefreshScheduled = true
-            Task { @MainActor [weak self] in
-                guard let self = self else { return }
-                self.isSyncStateRefreshScheduled = false
-                self.syncState.updateSyncingFiles(from: Array(self.statusBoxes.values))
-            }
+            // `objectWillChange` fires before the new status is stored; the
+            // refresh runs on the next main-actor turn, after it is.
+            self?.refreshSyncState()
         }
 
         return box

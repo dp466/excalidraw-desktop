@@ -42,6 +42,11 @@ struct WebFetchTool: Tool {
               scheme == "http" || scheme == "https" else {
             throw ToolError.invalidInput("Only HTTP and HTTPS URLs can be fetched.")
         }
+        // Model-chosen URLs (possibly prompt-injected) must not reach the
+        // app's own loopback servers or devices on the local network.
+        guard let host = url.host, !PublicNetworkHostPolicy.isBlockedHost(host) else {
+            throw ToolError.invalidInput("Only public internet URLs can be fetched.")
+        }
 
         // Create URLRequest with proper headers
         var request = URLRequest(url: url)
@@ -51,14 +56,28 @@ struct WebFetchTool: Tool {
 
         do {
             // Fetch content using URLSession
-            let (responseData, response) = try await URLSession.shared.data(for: request)
+            let (bytes, response) = try await URLSession.shared.bytes(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode) else {
                 throw ToolError.executionFailed("Failed to fetch URL: Invalid response")
             }
+            if let finalHost = httpResponse.url?.host,
+               PublicNetworkHostPolicy.isBlockedHost(finalHost) {
+                throw ToolError.executionFailed("Failed to fetch URL: redirected to a non-public host")
+            }
 
-            guard let content = String(data: responseData, encoding: .utf8) else {
+            // Only 2,000 characters are returned, so stop reading large
+            // bodies instead of buffering them whole in memory.
+            let maxBytes = 2 * 1024 * 1024
+            var responseData = Data()
+            for try await byte in bytes {
+                responseData.append(byte)
+                if responseData.count >= maxBytes { break }
+            }
+
+            guard let content = String(data: responseData, encoding: .utf8)
+                    ?? String(decoding: responseData, as: UTF8.self) as String? else {
                 throw ToolError.executionFailed("Failed to decode URL content")
             }
 

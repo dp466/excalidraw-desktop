@@ -22,7 +22,11 @@ private struct CloudKitSyncModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .task {
+            // The sink captures `activeFile`; resubscribe when it changes so an
+            // import is compared against the drawing that is actually open.
+            .task(id: activeFile) {
+                isImporting = false
+                fileBeforeImporting = nil
                 startCloudKitEventListener()
             }
     }

@@ -189,7 +189,7 @@ struct WhatsNewView: View {
                         case .allFeatures:
                             allFeaturesList()
                         case .video(let url):
-                            VideoPlayer(player: AVPlayer(url: url))
+                            WhatsNewVideoPlayer(url: url)
                     }
                 }
             }
@@ -583,5 +583,20 @@ struct ChangeLogView: View {
 #if os(macOS)
         .frame(width: 600, height: 800)
 #endif
+    }
+}
+
+/// Keeps one player per page: `AVPlayer(url:)` inside `body` restarted the
+/// download and playback on every view update.
+private struct WhatsNewVideoPlayer: View {
+    var url: URL
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        VideoPlayer(player: player)
+            .onAppear {
+                if player == nil { player = AVPlayer(url: url) }
+            }
+            .onDisappear { player?.pause() }
     }
 }

@@ -106,10 +106,11 @@ extension MediaItem {
         // Try to load from storage first (local/iCloud with bidirectional sync)
         if let filePath = filePath, let mediaID = mediaID {
             do {
-                // This will automatically check iCloud for updates and download if needed
-                let _ = try await FileStorageManager.shared.loadContent(relativePath: filePath, fileID: mediaID)
-                // Now load and convert to data URL
-                return try await FileStorageManager.shared.loadMediaItem(relativePath: filePath)
+                // This will automatically check iCloud for updates and download if needed.
+                // Encode the bytes it returns instead of reading the image a second time.
+                let data = try await FileStorageManager.shared.loadContent(relativePath: filePath, fileID: mediaID)
+                let mimeType = LocalStorageManager.mimeType(for: (filePath as NSString).pathExtension)
+                return "data:\(mimeType);base64,\(data.base64EncodedString())"
             } catch {
                 Self.logger.warning("\(error.localizedDescription), falling back to CoreData.")
             }
@@ -142,12 +143,21 @@ extension MediaItem {
     func toResourceFile() async throws -> ExcalidrawFile.ResourceFile {
         let dataURL = try await loadDataURL()
 
+        let objectID = self.objectID
+        let read = { (item: MediaItem?) in
+            (item?.mimeType, item?.id, item?.createdAt, item?.lastRetrievedAt)
+        }
+        let (mimeType, id, createdAt, lastRetrievedAt) = if let context = managedObjectContext {
+            await context.perform { read(context.object(with: objectID) as? MediaItem) }
+        } else {
+            read(self)
+        }
         return ExcalidrawFile.ResourceFile(
-            mimeType: self.mimeType ?? "application/octet-stream",
-            id: self.id ?? "",
-            createdAt: self.createdAt,
+            mimeType: mimeType ?? "application/octet-stream",
+            id: id ?? "",
+            createdAt: createdAt,
             dataURL: dataURL,
-            lastRetrievedAt: self.lastRetrievedAt
+            lastRetrievedAt: lastRetrievedAt
         )
     }
 }

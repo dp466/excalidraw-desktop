@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import CoreData
 import ChocofordUI
 import SmoothGradient
 
@@ -210,6 +211,11 @@ struct RecentlyFilesProvider: View {
     @State private var recentlyFiles: [FileState.ActiveFile] = []
     @State private var lastRecentlyFilesKey: [RecentlyFilePresentationKey] = []
     @State private var lastCoverPriorityKey: CoverPriorityKey?
+    /// Linked-folder files with their dates, scanned off the main thread.
+    /// Core Data and cloud changes reuse it instead of walking the disk.
+    @State private var localDatedFiles: [URL: Date] = [:]
+    @State private var localScanTask: Task<Void, Never>?
+    @State private var lastLocalScanAt: Date = .distantPast
 
     private struct RecentlyFilePresentationKey: Equatable {
         let id: String
@@ -267,7 +273,10 @@ struct RecentlyFilesProvider: View {
     var body: some View {
         content(recentlyFiles)
             .onHover { isHovered in
-                if isHovered { getRecentlyFiles() }
+                // Hover used to rescan every linked tree on the main thread.
+                if isHovered, Date().timeIntervalSince(lastLocalScanAt) > 5 {
+                    refreshLocalFiles()
+                }
             }
             .watch(value: filesRefreshKey) { _ in
                 getRecentlyFiles()
@@ -283,7 +292,7 @@ struct RecentlyFilesProvider: View {
             }
             .watch(value: scenePhase) { newValue in
                 if newValue == .active {
-                    getRecentlyFiles()
+                    refreshLocalFiles()
                     prioritizeCloudStorageRecents()
                 }
             }
@@ -291,19 +300,29 @@ struct RecentlyFilesProvider: View {
                 handleLocalFileRemoved(path: path)
             }
             .onReceive(localFolderState.itemRenamedPublisher) { _ in
-                getRecentlyFiles()
+                refreshLocalFiles()
             }
             .onReceive(localFolderState.refreshFilesPublisher) { _ in
-                getRecentlyFiles()
+                refreshLocalFiles()
+            }
+            .watch(value: localFolders.map(\.objectID)) { _ in
+                refreshLocalFiles()
             }
             .onAppear {
                 getRecentlyFiles()
+                refreshLocalFiles()
                 prioritizeCloudStorageRecents()
+            }
+            .onDisappear {
+                localScanTask?.cancel()
             }
     }
 
     private func handleLocalFileRemoved(path: String) {
         let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        localDatedFiles = localDatedFiles.filter {
+            $0.key.standardizedFileURL.path != standardizedPath
+        }
         let nextFiles = recentlyFiles.filter { file in
             guard case .localFile(let url) = file else { return true }
             return url.standardizedFileURL.path != standardizedPath
@@ -328,28 +347,11 @@ struct RecentlyFilesProvider: View {
             allDatedFiles[.file(file)] = file.visitedAt ?? file.updatedAt ?? file.createdAt ?? .distantPast
         }
         
-        // Local files
-        // Subfolders are LocalFolder rows too, and a deep scan of each root
-        // already covers them: scanning every row visited nested files again
-        // for each level, on the main thread at every app activation.
-        for folder in localFolders where folder.parent == nil {
-            do {
-                let filesAndModificationDates: [(URL, Date)] = try folder.getFiles(
-                    deep: true,
-                    properties: [.contentModificationDateKey, .creationDateKey]
-                ) { url in
-                    let values = try url.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey])
-                    return (url, max(values.contentModificationDate ?? .distantPast, values.creationDate ?? .distantPast))
-                }
-                
-                filesAndModificationDates.forEach { (url, date) in
-                    allDatedFiles[.localFile(url)] = date
-                }
-            } catch {
-                
-            }
+        // Local files (scanned in the background by refreshLocalFiles)
+        for (url, date) in localDatedFiles {
+            allDatedFiles[.localFile(url)] = date
         }
-        
+
         // Collaboration files
         collaborationFiles.forEach { file in
             allDatedFiles[.collaborationFile(file)] = file.visitedAt ?? file.updatedAt ?? file.createdAt ?? .distantPast
@@ -390,6 +392,45 @@ struct RecentlyFilesProvider: View {
                 recentlyFiles,
                 colorScheme: colorScheme
             )
+        }
+    }
+
+    private func refreshLocalFiles() {
+        lastLocalScanAt = Date()
+        // Subfolders are LocalFolder rows too, and a deep scan of each root
+        // already covers them.
+        let rootIDs = localFolders.filter { $0.parent == nil }.map(\.objectID)
+        localScanTask?.cancel()
+        localScanTask = Task { @MainActor in
+            let scanned = await Self.scanLocalFiles(rootFolderIDs: rootIDs)
+            guard !Task.isCancelled else { return }
+            localDatedFiles = scanned
+            getRecentlyFiles()
+        }
+    }
+
+    private static func scanLocalFiles(
+        rootFolderIDs: [NSManagedObjectID]
+    ) async -> [URL: Date] {
+        guard !rootFolderIDs.isEmpty else { return [:] }
+        let context = PersistenceController.shared.newTaskContext()
+        return await context.perform {
+            var result: [URL: Date] = [:]
+            for folderID in rootFolderIDs {
+                guard let folder = try? context.existingObject(with: folderID) as? LocalFolder,
+                      let files: [(URL, Date)] = try? folder.getFiles(
+                        deep: true,
+                        properties: [.contentModificationDateKey, .creationDateKey],
+                        action: { url in
+                            let values = try url.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey])
+                            return (url, max(values.contentModificationDate ?? .distantPast, values.creationDate ?? .distantPast))
+                        }
+                      ) else { continue }
+                for (url, date) in files {
+                    result[url] = date
+                }
+            }
+            return result
         }
     }
 

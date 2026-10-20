@@ -87,12 +87,12 @@ struct LibraryView: View {
         ) { urls in
             var libraries: [ExcalidrawLibrary] = []
             for url in urls {
-                _ = url.startAccessingSecurityScopedResource()
+                let didStart = url.startAccessingSecurityScopedResource()
+                defer { if didStart { url.stopAccessingSecurityScopedResource() } }
                 let data = try Data(contentsOf: url)
                 var library = try JSONDecoder().decode(ExcalidrawLibrary.self, from: data)
                 library.name = url.deletingPathExtension().lastPathComponent
                 libraries.append(library)
-                url.stopAccessingSecurityScopedResource()
             }
             self.librariesToImport = libraries
         }
@@ -612,7 +612,9 @@ struct LibraryView: View {
                         viewModel.objectWillChange.send()
                     }
                 } catch {
-                    alertToast(error)
+                    DispatchQueue.main.async {
+                        alertToast(error)
+                    }
                 }
             }
         }
@@ -642,7 +644,9 @@ struct LibraryView: View {
                     }
                     try context.save()
                 } catch {
-                    alertToast(error)
+                    DispatchQueue.main.async {
+                        alertToast(error)
+                    }
                 }
             }
         }

@@ -253,81 +253,45 @@ struct FileEnumerator {
         return await context.perform {
             var expectedFiles: [SyncFileState] = []
 
-            // Fetch all File entities
-            do {
-                let fileRequest: NSFetchRequest<File> = File.fetchRequest()
-                fileRequest.propertiesToFetch = ["id", "updatedAt"]
-                let files = try context.fetch(fileRequest)
-                for file in files {
-                    guard let fileID = file.id?.uuidString,
-                          let updatedAt = file.updatedAt else { continue }
-
-                    let relativePath = FileStorageContentType.file.generateRelativePath(fileID: fileID)
-                    expectedFiles.append(SyncFileState(
-                        fileID: fileID,
-                        relativePath: relativePath,
-                        contentType: .file,
-                        modifiedAt: updatedAt,
-                        size: 0  // Size will be determined from filesystem
-                    ))
-                }
-            } catch {
-                self.logger.error("Failed to fetch File entities: \(error.localizedDescription)")
+            // Dictionary results: `propertiesToFetch` is ignored for managed
+            // objects, so these fetches loaded every row in full, including
+            // the inline image data of media items.
+            func rows(_ entityName: String, _ properties: [String]) throws -> [[String: Any]] {
+                let request = NSFetchRequest<NSDictionary>(entityName: entityName)
+                request.resultType = .dictionaryResultType
+                request.propertiesToFetch = properties
+                return try context.fetch(request).compactMap { $0 as? [String: Any] }
             }
 
-            // Fetch all CollaborationFile entities
-            do {
-                let collabRequest: NSFetchRequest<CollaborationFile> = CollaborationFile.fetchRequest()
-                collabRequest.propertiesToFetch = ["id", "updatedAt"]
-                let collabFiles = try context.fetch(collabRequest)
-                for collabFile in collabFiles {
-                    guard let fileID = collabFile.id?.uuidString,
-                          let updatedAt = collabFile.updatedAt else { continue }
-
-                    let relativePath = FileStorageContentType.collaborationFile.generateRelativePath(fileID: fileID)
-                    expectedFiles.append(SyncFileState(
-                        fileID: fileID,
-                        relativePath: relativePath,
-                        contentType: .collaborationFile,
-                        modifiedAt: updatedAt,
-                        size: 0
-                    ))
+            let datedEntities: [(entity: String, contentType: FileStorageContentType, label: String)] = [
+                ("File", .file, "File"),
+                ("CollaborationFile", .collaborationFile, "CollaborationFile"),
+                ("FileCheckpoint", .checkpoint, "FileCheckpoint"),
+            ]
+            for (entity, contentType, label) in datedEntities {
+                do {
+                    for row in try rows(entity, ["id", "updatedAt"]) {
+                        guard let fileID = (row["id"] as? UUID)?.uuidString,
+                              let updatedAt = row["updatedAt"] as? Date else { continue }
+                        expectedFiles.append(SyncFileState(
+                            fileID: fileID,
+                            relativePath: contentType.generateRelativePath(fileID: fileID),
+                            contentType: contentType,
+                            modifiedAt: updatedAt,
+                            size: 0  // Size will be determined from filesystem
+                        ))
+                    }
+                } catch {
+                    self.logger.error("Failed to fetch \(label) entities: \(error.localizedDescription)")
                 }
-            } catch {
-                self.logger.error("Failed to fetch CollaborationFile entities: \(error.localizedDescription)")
-            }
-
-            // Fetch all FileCheckpoint entities
-            do {
-                let checkpointRequest: NSFetchRequest<FileCheckpoint> = FileCheckpoint.fetchRequest()
-                checkpointRequest.propertiesToFetch = ["id", "updatedAt"]
-                let checkpoints = try context.fetch(checkpointRequest)
-                for checkpoint in checkpoints {
-                    guard let fileID = checkpoint.id?.uuidString,
-                          let timestamp = checkpoint.updatedAt else { continue }
-
-                    let relativePath = FileStorageContentType.checkpoint.generateRelativePath(fileID: fileID)
-                    expectedFiles.append(SyncFileState(
-                        fileID: fileID,
-                        relativePath: relativePath,
-                        contentType: .checkpoint,
-                        modifiedAt: timestamp,
-                        size: 0
-                    ))
-                }
-            } catch {
-                self.logger.error("Failed to fetch FileCheckpoint entities: \(error.localizedDescription)")
             }
 
             // Fetch all MediaItem entities
             do {
-                let mediaRequest: NSFetchRequest<MediaItem> = MediaItem.fetchRequest()
-                mediaRequest.propertiesToFetch = ["id", "mimeType", "createdAt"]
-                let mediaItems = try context.fetch(mediaRequest)
-                for mediaItem in mediaItems {
-                    guard let fileID = mediaItem.id,
-                          let mimeType = mediaItem.mimeType,
-                          let createdAt = mediaItem.createdAt else { continue }
+                for row in try rows("MediaItem", ["id", "mimeType", "createdAt"]) {
+                    guard let fileID = row["id"] as? String,
+                          let mimeType = row["mimeType"] as? String,
+                          let createdAt = row["createdAt"] as? Date else { continue }
                     let ext = FileStorageContentType.fileExtension(for: mimeType)
                     let contentType = FileStorageContentType.mediaItem(extension: ext)
                     let relativePath = contentType.generateRelativePath(fileID: fileID)
@@ -347,20 +311,21 @@ struct FileEnumerator {
             // have their own Core Data entity, but they are still first-class files
             // under FileStorage and need DiffScan coverage.
             do {
-                let messageRequest = NSFetchRequest<AIConversationMessage>(entityName: "AIConversationMessage")
+                let messageRequest = NSFetchRequest<NSDictionary>(entityName: "AIConversationMessage")
+                messageRequest.resultType = .dictionaryResultType
                 messageRequest.predicate = NSPredicate(format: "filesData != nil")
                 messageRequest.propertiesToFetch = ["filesData", "timeStamp"]
 
-                let messages = try context.fetch(messageRequest)
+                let messages = try context.fetch(messageRequest).compactMap { $0 as? [String: Any] }
                 let decoder = JSONDecoder()
                 var seenAttachmentIDs = Set<String>()
 
                 for message in messages {
-                    guard let filesData = message.filesData,
+                    guard let filesData = message["filesData"] as? Data,
                           let persistedFiles = try? decoder.decode([PersistedFile].self, from: filesData)
                     else { continue }
 
-                    let timestamp = message.timeStamp ?? Date()
+                    let timestamp = message["timeStamp"] as? Date ?? Date()
                     for file in persistedFiles where file.kind == .local {
                         guard let fileID = file.fileID,
                               let ext = file.ext,

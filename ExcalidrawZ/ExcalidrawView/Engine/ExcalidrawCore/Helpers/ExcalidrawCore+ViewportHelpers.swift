@@ -110,9 +110,11 @@ extension ExcalidrawCore {
     @MainActor
     func scrollToElement(id: String, options: ScrollToElementOptions = .init()) async throws {
         guard !self.webView.isLoading else { return }
+        // IDs can come from MCP/AI tool input; encode rather than quote them.
+        let idJSON = try encodeJSON(id)
         let optionsJSON = try encodeJSON(options)
         _ = try await webView.callAsyncJavaScript(
-            "window.excalidrawZHelper.scrollToElement('\(id)', \(optionsJSON));",
+            "window.excalidrawZHelper.scrollToElement(\(idJSON), \(optionsJSON));",
             arguments: [:],
             contentWorld: .page
         )

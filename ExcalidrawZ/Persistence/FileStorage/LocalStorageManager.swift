@@ -306,7 +306,7 @@ actor LocalStorageManager {
         
         // Determine mime type from file extension
         let pathExtension = (relativePath as NSString).pathExtension
-        let mimeType = mimeType(for: pathExtension)
+        let mimeType = Self.mimeType(for: pathExtension)
         
         return "data:\(mimeType);base64,\(base64)"
     }
@@ -340,7 +340,7 @@ actor LocalStorageManager {
     
     // MARK: - Helper Methods
     
-    private func mimeType(for fileExtension: String) -> String {
+    static func mimeType(for fileExtension: String) -> String {
         switch fileExtension.lowercased() {
             case "png": return "image/png"
             case "jpg", "jpeg": return "image/jpeg"

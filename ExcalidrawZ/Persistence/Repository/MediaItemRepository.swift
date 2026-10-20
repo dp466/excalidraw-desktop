@@ -290,8 +290,12 @@ actor MediaItemRepository {
     ) async throws -> String {
         let context = PersistenceController.shared.newTaskContext()
 
-        guard let mediaItem = context.object(with: mediaItemObjectID) as? MediaItem else {
-            throw MediaItemError.missingID
+        // Background contexts may only be touched on their own queue.
+        let mediaItem = try await context.perform {
+            guard let mediaItem = context.object(with: mediaItemObjectID) as? MediaItem else {
+                throw MediaItemError.missingID
+            }
+            return mediaItem
         }
 
         return try await mediaItem.loadDataURL()
@@ -305,8 +309,12 @@ actor MediaItemRepository {
     ) async throws -> ExcalidrawFile.ResourceFile {
         let context = PersistenceController.shared.newTaskContext()
 
-        guard let mediaItem = context.object(with: mediaItemObjectID) as? MediaItem else {
-            throw MediaItemError.missingID
+        // Background contexts may only be touched on their own queue.
+        let mediaItem = try await context.perform {
+            guard let mediaItem = context.object(with: mediaItemObjectID) as? MediaItem else {
+                throw MediaItemError.missingID
+            }
+            return mediaItem
         }
 
         return try await mediaItem.toResourceFile()

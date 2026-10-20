@@ -118,8 +118,7 @@ class PrinterWebView: WKWebView {
 
 extension PrinterWebView: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        if let url = webView.url,
-           let pdfDataRequest = pdfDataRequests[url] {
+        if let pdfDataRequest = pendingRequest(in: pdfDataRequests, for: webView.url) {
             Task { @MainActor in
                 do {
                     let data = try await generatePDF(from: webView)
@@ -156,9 +155,7 @@ extension PrinterWebView: WKNavigationDelegate {
             logger.warning("No window available for print operation")
         }
 
-        if let url = webView.url {
-            self.printRequests[url]?()
-        }
+        pendingRequest(in: printRequests, for: webView.url)?()
 #elseif canImport(UIKit)
         Task { @MainActor in
             let pdfURL = FileManager.default.temporaryDirectory
@@ -166,14 +163,10 @@ extension PrinterWebView: WKNavigationDelegate {
             do {
                 let data = try await self.generatePDF(from: webView)
                 try data.write(to: pdfURL)
-                if let url = webView.url {
-                    self.printRequests[url]?(pdfURL)
-                }
+                self.pendingRequest(in: self.printRequests, for: webView.url)?(pdfURL)
             } catch {
                 self.logger.error("generatePDF failed: \(error)")
-                if let url = webView.url {
-                    self.printRequests[url]?(nil)
-                }
+                self.pendingRequest(in: self.printRequests, for: webView.url)?(nil)
             }
 
         }
@@ -215,12 +208,22 @@ extension PrinterWebView: WKNavigationDelegate {
         }
     }
 
+    /// Failed loads must resume their waiter too, or print/export hangs forever.
     private func failPDFDataRequest(for url: URL?, error: Error) {
-        guard let url,
-              let pdfDataRequest = pdfDataRequests[url] else {
-            return
-        }
-        pdfDataRequest(.failure(error))
+        logger.error("Print page failed to load: \(error)")
+        pendingRequest(in: pdfDataRequests, for: url)?(.failure(error))
+#if canImport(AppKit)
+        pendingRequest(in: printRequests, for: url)?()
+#elseif canImport(UIKit)
+        pendingRequest(in: printRequests, for: url)?(nil)
+#endif
+    }
+
+    /// Each view serves one request, and a failed provisional load may not
+    /// report the requested URL, so fall back to the only pending request.
+    private func pendingRequest<Request>(in requests: [URL: Request], for url: URL?) -> Request? {
+        if let url, let request = requests[url] { return request }
+        return requests.count == 1 ? requests.values.first : nil
     }
 }
 //#endif

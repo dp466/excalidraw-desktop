@@ -848,9 +848,12 @@ final class FileState: ObservableObject {
                             return try? context.fetch(trashGroupFetchRequest).first
                         }
                         
-                        setActiveGroupIfNeeded(.group(trashGroup ?? dbFile.group!))
-                    } else {
-                        setActiveGroupIfNeeded(.group(dbFile.group!))
+                        // The fetch suspends; the file can lose its group meanwhile.
+                        if let group = trashGroup ?? dbFile.group {
+                            setActiveGroupIfNeeded(.group(group))
+                        }
+                    } else if let group = dbFile.group {
+                        setActiveGroupIfNeeded(.group(group))
                     }
                     if let groupID = dbFile.group?.objectID, dbFile.inTrash == false {
                         expandToGroup(groupID)
@@ -1345,10 +1348,30 @@ final class FileState: ObservableObject {
         if active {
             await requestActiveLibraryFileChange(fileObjectID: fileID)
         }
-        
+
         return fileID
     }
-    
+
+    /// Inserts an image once the editor shows `fileID`. A fixed delay put the
+    /// image into the previous drawing when the new one loaded slowly or the
+    /// switch was refused.
+    @MainActor
+    func insertImage(_ imageData: Data, type: String, intoFileWithID fileID: String, timeout: TimeInterval = 15) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            try Task.checkCancellation()
+            if currentActiveFile?.id == fileID,
+               let coordinator = excalidrawWebCoordinator,
+               !coordinator.isLoading,
+               coordinator.documentSyncController.currentLoadedFileID == fileID {
+                _ = try await coordinator.loadImageToExcalidrawCanvas(imageData: imageData, type: type)
+                return
+            }
+            guard Date() < deadline else { throw AppError.stateError(.editorNotShowingFile) }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+    }
+
     @discardableResult
     @MainActor
     func persistPreparedLibraryCanvasUpdate(

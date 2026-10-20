@@ -59,8 +59,12 @@ actor WebDAVCloudStorageSession: CloudStorageSession {
         to localURL: URL
     ) async throws -> CloudStorageItem {
         let url = try WebDAVURL.itemURL(for: fileID)
+        // Read the revision before the bytes. Reading it after let a change
+        // in between record a revision newer than the cached content, so the
+        // next conditional upload overwrote that remote change unnoticed.
+        let item = try await client.item(at: url).cloudStorageItem(rootURL: rootURL)
         try await client.download(url, to: localURL)
-        return try await client.item(at: url).cloudStorageItem(rootURL: rootURL)
+        return item
     }
 
     func createFile(

@@ -153,22 +153,35 @@ struct PDFViewRepresentable: NSViewRepresentable {
     let document: PDFDocument
     @Binding var currentPage: Int
 
+    final class Coordinator {
+        var pageObserver: NSObjectProtocol?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    // The block observer is removed with the view; it holds the document.
+    static func dismantleNSView(_ pdfView: PDFView, coordinator: Coordinator) {
+        if let observer = coordinator.pageObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
     func makeNSView(context: Context) -> PDFView {
         let pdfView = PDFView()
         pdfView.document = document
         pdfView.autoScales = true
         pdfView.displayMode = .singlePage
         pdfView.displayDirection = .vertical
-
+        
         // Add page change notification
-        NotificationCenter.default.addObserver(
+        context.coordinator.pageObserver = NotificationCenter.default.addObserver(
             forName: .PDFViewPageChanged,
             object: pdfView,
             queue: .main
         ) { [weak pdfView] _ in
             guard let pdfView = pdfView,
-                  let currentPDFPage = pdfView.currentPage else { return }
-            let index = document.index(for: currentPDFPage)
+                  let currentPDFPage = pdfView.currentPage,
+                  let index = pdfView.document?.index(for: currentPDFPage) else { return }
             if index != currentPage {
                 currentPage = index
             }
@@ -178,6 +191,10 @@ struct PDFViewRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: PDFView, context: Context) {
+        // The data can arrive after the sheet opened.
+        if nsView.document !== document {
+            nsView.document = document
+        }
         // Update current page when binding changes
         guard let page = document.page(at: currentPage),
               nsView.currentPage != page else { return }
@@ -189,22 +206,35 @@ struct PDFViewRepresentable: UIViewRepresentable {
     let document: PDFDocument
     @Binding var currentPage: Int
 
+    final class Coordinator {
+        var pageObserver: NSObjectProtocol?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    // The block observer is removed with the view; it holds the document.
+    static func dismantleUIView(_ pdfView: PDFView, coordinator: Coordinator) {
+        if let observer = coordinator.pageObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
     func makeUIView(context: Context) -> PDFView {
         let pdfView = PDFView()
         pdfView.document = document
         pdfView.autoScales = true
         pdfView.displayMode = .singlePage
         pdfView.displayDirection = .vertical
-
+        
         // Add page change notification
-        NotificationCenter.default.addObserver(
+        context.coordinator.pageObserver = NotificationCenter.default.addObserver(
             forName: .PDFViewPageChanged,
             object: pdfView,
             queue: .main
         ) { [weak pdfView] _ in
             guard let pdfView = pdfView,
-                  let currentPDFPage = pdfView.currentPage else { return }
-            let index = document.index(for: currentPDFPage)
+                  let currentPDFPage = pdfView.currentPage,
+                  let index = pdfView.document?.index(for: currentPDFPage) else { return }
             if index != currentPage {
                 currentPage = index
             }
@@ -214,6 +244,10 @@ struct PDFViewRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: PDFView, context: Context) {
+        // The data can arrive after the sheet opened.
+        if uiView.document !== document {
+            uiView.document = document
+        }
         // Update current page when binding changes
         guard let page = document.page(at: currentPage),
               uiView.currentPage != page else { return }

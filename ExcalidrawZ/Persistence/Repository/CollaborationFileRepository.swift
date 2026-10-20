@@ -223,7 +223,7 @@ actor CollaborationFileRepository {
     ) async throws {
         let context = PersistenceController.shared.newTaskContext()
 
-        let checkpointObjectID = try await context.perform {
+        let (checkpointObjectID, expiredCheckpointIDs) = try await context.perform {
             guard let collaborationFile = context.object(with: collaborationFileObjectID) as? CollaborationFile else {
                 throw AppError.fileError(.notFound)
             }
@@ -237,21 +237,28 @@ actor CollaborationFileRepository {
 
             try context.save()
 
-            // Clean up old checkpoints if needed
+            // Keep the newest 50. A batch delete removed only the rows and
+            // left each expired checkpoint's stored content on disk.
             let fetchRequest = NSFetchRequest<FileCheckpoint>(entityName: "FileCheckpoint")
             fetchRequest.predicate = NSPredicate(format: "collaborationFile = %@", collaborationFile)
             fetchRequest.sortDescriptors = [NSSortDescriptor(key: "updatedAt", ascending: false)]
-            if let checkpoints = try? context.fetch(fetchRequest),
-               checkpoints.count > 50 {
-                let batchDeleteRequest = NSBatchDeleteRequest(objectIDs: checkpoints.suffix(checkpoints.count - 50).map{$0.objectID})
-                try context.executeAndMergeChanges(using: batchDeleteRequest)
-            }
-
-            return checkpoint.objectID
+            let expired = ((try? context.fetch(fetchRequest)) ?? [])
+                .dropFirst(FileRepository.maximumCheckpointsPerFile)
+                .map(\.objectID)
+            return (checkpoint.objectID, Array(expired))
         }
 
         // Save checkpoint to storage using CheckpointRepository
         try await PersistenceController.shared.checkpointRepository.saveCheckpointToStorage(checkpointObjectID: checkpointObjectID)
+
+        for expiredCheckpointID in expiredCheckpointIDs {
+            do {
+                try await PersistenceController.shared.checkpointRepository
+                    .deleteCheckpoint(checkpointObjectID: expiredCheckpointID)
+            } catch {
+                logger.warning("Failed to delete expired collaboration checkpoint: \(error)")
+            }
+        }
     }
 
     /// Update the latest checkpoint for the collaboration file
@@ -314,23 +321,28 @@ actor CollaborationFileRepository {
         let context = PersistenceController.shared.newTaskContext()
 
         // Load content from CollaborationFile
-        let collaborationFile = try await context.perform {
+        // Read attributes on the context's queue; only the object reference
+        // leaves it (loadContent performs its own context work).
+        let (collaborationFile, name, updatedAt) = try await context.perform {
             guard let collaborationFile = context.object(with: collaborationFileObjectID) as? CollaborationFile else {
                 throw AppError.fileError(.notFound)
             }
-            return collaborationFile
+            return (
+                collaborationFile,
+                collaborationFile.name ?? String(localizable: .generalUntitled),
+                collaborationFile.updatedAt
+            )
         }
 
         let content = try await collaborationFile.loadContent()
-        
+
         let id = UUID()
-        let name = collaborationFile.name ?? String(localizable: .generalUntitled)
-        
+
         let filePath = try await FileStorageManager.shared.saveContent(
             content,
             fileID: id.uuidString,
             type: .file,
-            updatedAt: collaborationFile.updatedAt
+            updatedAt: updatedAt
         )
         
         let fileID = try await context.perform {

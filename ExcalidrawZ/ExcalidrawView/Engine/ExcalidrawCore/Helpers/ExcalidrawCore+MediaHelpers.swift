@@ -50,6 +50,12 @@ extension ExcalidrawCore {
     /// Most work (fetching, loading files) runs on background threads for better performance
     /// - Returns: The count of injected MediaItems
     func injectAllMediaItems() async throws -> Int {
+        try await injectMediaItems(onlyIDs: nil)
+    }
+
+    /// - Parameter onlyIDs: When set, inject just these media items and add
+    ///   them to the loaded set; otherwise inject everything and replace it.
+    private func injectMediaItems(onlyIDs: Set<String>?) async throws -> Int {
         let hasParent = await MainActor.run {
             parent != nil
         }
@@ -67,21 +73,31 @@ extension ExcalidrawCore {
         }
 
         let context = PersistenceController.shared.newTaskContext()
-        let allMedias = try await context.perform {
-            let allMediasFetch = NSFetchRequest<MediaItem>(entityName: "MediaItem")
-            return try context.fetch(allMediasFetch)
+        // Object IDs and media IDs only; each item's data is read by its own task.
+        let (mediaObjectIDs, mediaIDs): ([NSManagedObjectID], Set<String>) = try await context.perform {
+            let predicate = onlyIDs.map { NSPredicate(format: "id IN %@", Array($0)) }
+            let objectIDRequest = NSFetchRequest<NSManagedObjectID>(entityName: "MediaItem")
+            objectIDRequest.resultType = .managedObjectIDResultType
+            objectIDRequest.predicate = predicate
+            let idRequest = NSFetchRequest<NSDictionary>(entityName: "MediaItem")
+            idRequest.resultType = .dictionaryResultType
+            idRequest.propertiesToFetch = ["id"]
+            idRequest.predicate = predicate
+            return (
+                try context.fetch(objectIDRequest),
+                Set(try context.fetch(idRequest).compactMap { $0["id"] as? String })
+            )
         }
-        let allMediaIDs = allMedias.compactMap(\.id)
 
         let mediaFiles = await withTaskGroup(of: ExcalidrawFile.ResourceFile?.self) { group in
             var files: [ExcalidrawFile.ResourceFile] = []
 
-            for id in allMedias.map({ $0.objectID }) {
+            for id in mediaObjectIDs {
                 group.addTask {
-                    if let mediaItem = context.object(with: id) as? MediaItem {
-                        return try? await ExcalidrawFile.ResourceFile(mediaItem: mediaItem)
-                    }
-                    return nil
+                    // Background contexts may only be used on their own queue.
+                    let mediaItem = await context.perform { context.object(with: id) as? MediaItem }
+                    guard let mediaItem else { return nil }
+                    return try? await ExcalidrawFile.ResourceFile(mediaItem: mediaItem)
                 }
             }
 
@@ -96,7 +112,11 @@ extension ExcalidrawCore {
 
         try await self.insertMediaFiles(mediaFiles)
         await MainActor.run {
-            self.updateLoadedMediaItemIDs(Set(allMediaIDs))
+            if onlyIDs == nil {
+                self.updateLoadedMediaItemIDs(mediaIDs)
+            } else {
+                self.updateLoadedMediaItemIDs(self.loadedMediaItemIDSnapshot().union(mediaIDs))
+            }
             self.hasInjectIndexedDBData = true
         }
 
@@ -108,31 +128,42 @@ extension ExcalidrawCore {
     public func refreshMediaItemsIfNeeded() async throws {
         let (currentIDs, loadedIDs) = try await MainActor.run {
             let context = PersistenceController.shared.container.viewContext
-            let fetchRequest = NSFetchRequest<MediaItem>(entityName: "MediaItem")
+            // IDs only: a managed-object fetch ignores `propertiesToFetch` and
+            // faulted in every image's inline data on the main thread.
+            let fetchRequest = NSFetchRequest<NSDictionary>(entityName: "MediaItem")
+            fetchRequest.resultType = .dictionaryResultType
             fetchRequest.propertiesToFetch = ["id"]
-
-            let currentMedias = try context.fetch(fetchRequest)
-            let currentIDs = Set(currentMedias.compactMap { $0.id })
+            let currentIDs = Set(try context.fetch(fetchRequest).compactMap { $0["id"] as? String })
 
             return (currentIDs, self.loadedMediaItemIDSnapshot())
         }
 
-        let hasChanges = currentIDs != loadedIDs
-
-        if hasChanges {
-            _ = try await injectAllMediaItems()
+        // Re-injecting the whole library for one new image read and
+        // base64-encoded every image again; send only the ones the editor lacks.
+        let missingIDs = currentIDs.subtracting(loadedIDs)
+        if !missingIDs.isEmpty {
+            _ = try await injectMediaItems(onlyIDs: missingIDs)
+        }
+        if !loadedIDs.isSubset(of: currentIDs) {
+            await MainActor.run {
+                self.updateLoadedMediaItemIDs(self.loadedMediaItemIDSnapshot().intersection(currentIDs))
+            }
         }
     }
 
     @MainActor
     @discardableResult
     public func loadImageToExcalidrawCanvas(imageData: Data, type: String) async throws -> LoadImageResult? {
-        var buffer = [UInt8].init(repeating: 0, count: imageData.count)
-        imageData.copyBytes(to: &buffer, count: imageData.count)
-        let buf = buffer
+        // Passed as base64: printing the bytes as a JS array literal built a
+        // script several times the image size.
         let raw = try await webView.callAsyncJavaScript(
-            "return await window.excalidrawZHelper.loadImageBuffer(\(buf), type);",
-            arguments: ["type": type],
+            """
+            const binary = atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            return await window.excalidrawZHelper.loadImageBuffer(bytes, type);
+            """,
+            arguments: ["base64": imageData.base64EncodedString(), "type": type],
             contentWorld: .page
         )
         let result = LoadImageResult(fromJS: raw)

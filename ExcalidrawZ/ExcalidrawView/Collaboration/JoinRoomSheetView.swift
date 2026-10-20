@@ -123,6 +123,15 @@ struct JoinRoomSheetView: View {
             return
         }
         
+        // A raw room ID also parses as a scheme-less URL; accept it as an ID.
+        let rawRoomID = invitationLink.trimmingCharacters(in: .whitespacesAndNewlines)
+        if checkRoomID(roomID: rawRoomID) {
+            self.error = nil
+            self.roomID = rawRoomID
+            if self.name.isEmpty { self.name = String(localizable: .generalUntitled) }
+            return
+        }
+
         // Not a valid URL, treat as a raw room ID.
         if let url = URL(string: invitationLink) {
             if url.scheme == "excalidrawz" {

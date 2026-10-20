@@ -294,7 +294,13 @@ struct MediaItemDetailContent: View {
     private func copyImage(_ data: Data) {
 #if canImport(AppKit)
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setData(data, forType: .png)
+        // Media can be JPEG, GIF or WebP: writing those bytes as .png gave
+        // other apps data they could not paste.
+        if let image = NSImage(data: data) {
+            NSPasteboard.general.writeObjects([image])
+        } else {
+            NSPasteboard.general.setData(data, forType: .png)
+        }
 #elseif canImport(UIKit)
         if let image = UIImage(data: data) {
             UIPasteboard.general.setObjects([image])

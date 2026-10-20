@@ -243,11 +243,13 @@ struct LibraryItemView: View {
                     }
                 }
             } catch {
-                alertToast(error)
+                await MainActor.run {
+                    alertToast(error)
+                }
             }
         }
     }
-    
+
     private func deleteLibraryItem() async throws {
         let context = PersistenceController.shared.container.newBackgroundContext()
         let itemID = self.item.objectID

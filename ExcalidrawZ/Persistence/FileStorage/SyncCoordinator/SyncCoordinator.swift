@@ -428,8 +428,11 @@ actor SyncCoordinator {
         }
         
         // Step 3: Build maps for quick lookup
-        let localMap = Dictionary(uniqueKeysWithValues: localFiles.map { ($0.compositeKey, $0) })
-        let iCloudMap = Dictionary(uniqueKeysWithValues: iCloudFiles.map { ($0.compositeKey, $0) })
+        // Keys ignore the extension, so one media ID stored as both `.png` and
+        // `.dat` collides; `uniqueKeysWithValues` trapped there. Keep the newer.
+        let newer: (SyncFileState, SyncFileState) -> SyncFileState = { $0.modifiedAt >= $1.modifiedAt ? $0 : $1 }
+        let localMap = Dictionary(localFiles.map { ($0.compositeKey, $0) }, uniquingKeysWith: newer)
+        let iCloudMap = Dictionary(iCloudFiles.map { ($0.compositeKey, $0) }, uniquingKeysWith: newer)
         
         // Step 4: Compare expected files against actual files
         var syncOperations: [SyncEvent] = []

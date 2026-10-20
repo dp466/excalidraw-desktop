@@ -27,6 +27,17 @@ struct SearchInspectorContent: View {
 
     private let debounceNanoseconds: UInt64 = 200_000_000  // 0.2s
 
+    /// Search the canvas the user is looking at; a collaboration room runs
+    /// in its own web view.
+    private var activeCoordinator: ExcalidrawCanvasView.Coordinator? {
+        switch fileState.currentActiveFile {
+            case .collaborationFile:
+                fileState.excalidrawCollaborationWebCoordinator
+            default:
+                fileState.excalidrawWebCoordinator
+        }
+    }
+
     private var isCompactIOS: Bool {
 #if os(iOS)
         containerHorizontalSizeClass == .compact
@@ -108,7 +119,7 @@ struct SearchInspectorContent: View {
         }
         .onDisappear {
             searchTask?.cancel()
-            Task { try? await fileState.excalidrawWebCoordinator?.clearCanvasHighlights() }
+            Task { try? await activeCoordinator?.clearCanvasHighlights() }
         }
     }
 
@@ -342,7 +353,7 @@ struct SearchInspectorContent: View {
         guard let index = selectedIndex, results.indices.contains(index) else { return }
         let result = results[index]
         Task {
-            try? await fileState.excalidrawWebCoordinator?.focusSearchResult(elementId: result.elementId)
+            try? await activeCoordinator?.focusSearchResult(elementId: result.elementId)
         }
     }
 
@@ -354,7 +365,7 @@ struct SearchInspectorContent: View {
         if newQuery.isEmpty {
             results = []
             selectedIndex = nil
-            Task { try? await fileState.excalidrawWebCoordinator?.clearCanvasHighlights() }
+            Task { try? await activeCoordinator?.clearCanvasHighlights() }
             return
         }
 
@@ -367,7 +378,7 @@ struct SearchInspectorContent: View {
 
     @MainActor
     private func runSearch(_ q: String) async {
-        guard let coordinator = fileState.excalidrawWebCoordinator else {
+        guard let coordinator = activeCoordinator else {
             results = []
             selectedIndex = nil
             return

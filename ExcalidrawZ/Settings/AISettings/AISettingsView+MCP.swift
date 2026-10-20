@@ -1024,10 +1024,20 @@ private struct MCPClientCredentialRow: View {
 #if os(macOS)
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(config, forType: .string)
+                // The config embeds a private token: ask clipboard history
+                // managers not to record it.
+                NSPasteboard.general.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
 #elseif os(iOS)
-                UIPasteboard.general.string = config
+                UIPasteboard.general.setItems(
+                    [[UTType.plainText.identifier: config]],
+                    options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)]
+                )
 #endif
                 copied = true
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    copied = false
+                }
             }
             Button("Revoke", role: .destructive) { controller.revokeClient(client) }
         }

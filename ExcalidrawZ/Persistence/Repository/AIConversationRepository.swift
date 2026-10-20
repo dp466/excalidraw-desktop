@@ -499,7 +499,9 @@ actor AIConversationRepository {
                 message.isCompactSummary = isCompactSummary
             }
 
-            message.timeStamp = Date()
+            // `timeStamp` orders messages on restore; keep the creation time.
+            // Re-stamping moved a message updated later (usage, compaction
+            // flags) after newer ones and split tool calls from their results.
 
             // Update conversation's lastChatAt
             if let conversation = message.conversation {
@@ -532,7 +534,6 @@ actor AIConversationRepository {
             message.stepNumber = Int64(stepNumber)
             message.stepType = stepType
             message.content = content
-            message.timeStamp = Date()
 
             // Update conversation's lastChatAt
             if let conversation = message.conversation {
@@ -700,15 +701,17 @@ actor AIConversationRepository {
         let context = PersistenceController.shared.newTaskContext()
 
         return try await context.perform {
-            let fetchRequest = NSFetchRequest<AIConversationMessage>(entityName: "AIConversationMessage")
+            // Dictionary results read only the blobs; managed objects would
+            // load every message's full content as well.
+            let fetchRequest = NSFetchRequest<NSDictionary>(entityName: "AIConversationMessage")
+            fetchRequest.resultType = .dictionaryResultType
             fetchRequest.predicate = NSPredicate(
                 format: "conversation.conversationID == %@ AND filesData != nil",
                 conversationID
             )
             fetchRequest.propertiesToFetch = ["filesData"]
 
-            let messages = try context.fetch(fetchRequest)
-            return messages.compactMap { $0.filesData }
+            return try context.fetch(fetchRequest).compactMap { $0["filesData"] as? Data }
         }
     }
 
@@ -722,12 +725,12 @@ actor AIConversationRepository {
         let context = PersistenceController.shared.newTaskContext()
 
         return try await context.perform {
-            let fetchRequest = NSFetchRequest<AIConversationMessage>(entityName: "AIConversationMessage")
+            let fetchRequest = NSFetchRequest<NSDictionary>(entityName: "AIConversationMessage")
+            fetchRequest.resultType = .dictionaryResultType
             fetchRequest.predicate = NSPredicate(format: "filesData != nil")
             fetchRequest.propertiesToFetch = ["filesData"]
 
-            let messages = try context.fetch(fetchRequest)
-            return messages.compactMap { $0.filesData }
+            return try context.fetch(fetchRequest).compactMap { $0["filesData"] as? Data }
         }
     }
 }

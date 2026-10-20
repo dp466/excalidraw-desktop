@@ -191,22 +191,25 @@ private struct ColorPickerWithFooter: View {
 extension Color {
     /// Convert Color to hex string
     func toHexString() -> String {
+        // Extended-range components can fall outside 0...1.
+        let byte: (CGFloat) -> Int = { Int((min(max($0, 0), 1) * 255).rounded()) }
 #if os(macOS)
         guard let rgbColor = NSColor(self).usingColorSpace(.deviceRGB) else {
             return "#000000"
         }
-        let r = Int(rgbColor.redComponent * 255)
-        let g = Int(rgbColor.greenComponent * 255)
-        let b = Int(rgbColor.blueComponent * 255)
-        return String(format: "#%02x%02x%02x", r, g, b)
+        return String(
+            format: "#%02x%02x%02x",
+            byte(rgbColor.redComponent),
+            byte(rgbColor.greenComponent),
+            byte(rgbColor.blueComponent)
+        )
 #else
-        guard let components = UIColor(self).cgColor.components else {
+        // Grayscale colors have only two CGColor components; getRed converts.
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        guard UIColor(self).getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
             return "#000000"
         }
-        let r = Int(components[0] * 255)
-        let g = Int(components[1] * 255)
-        let b = Int(components[2] * 255)
-        return String(format: "#%02x%02x%02x", r, g, b)
+        return String(format: "#%02x%02x%02x", byte(red), byte(green), byte(blue))
 #endif
     }
 }

@@ -4,6 +4,53 @@ This changelog covers the ExcalidrawDesktop fork. Historical ExcalidrawZ release
 
 ## Unreleased
 
+### Local build 143
+
+Line-by-line review of the remaining code (components, persistence, sync, cloud storage, editor bridge, sidebar, Home, Settings, AI chat, inspectors).
+
+- Data safety:
+  - Choosing a version in an iCloud conflict no longer discards every version when writing the chosen one fails.
+  - Orphan cleanup no longer deletes all stored files of a type when the database ID list could not be read.
+  - Reverting an AI round restores the canvas as it was on screen, not the slightly older saved copy.
+  - WebDAV no longer overwrites a remote change made between download and metadata read.
+  - Deleting a checkpoint from its detail view is now saved, and its content file is removed.
+  - Collaboration checkpoint pruning removes the checkpoint files too.
+  - AI chat messages keep their original order after relaunch.
+- Crashes fixed:
+  - odd-length collaboration room links;
+  - the AI calculator on malformed input (it also no longer evaluates arbitrary expressions);
+  - starting a new chat while a message is being sent;
+  - grayscale colors on iOS;
+  - opening a tip or What's New video on macOS 13;
+  - duplicate media IDs during sync scans;
+  - duplicate cloud item IDs during migration.
+- Hangs fixed: Print/Export PDF waiting forever after a failed load; sidebar drops left pending after Cancel; dropping a collaboration room on a group.
+- Correctness:
+  - "New drawing from clipboard" and "open image" insert into the new drawing, not the previous one.
+  - Canvas search works in collaboration rooms.
+  - Duplicating linked-folder files works from Home and Recent.
+  - Removing a linked folder leaves its open subfolder.
+  - Files dropped from folders with similar names open correctly.
+  - A pasted raw room ID is accepted.
+  - CloudKit updates are matched to the open drawing after switching.
+  - Fractional image timestamps no longer fail to open a drawing.
+  - Copy in Settings › Media pastes correctly.
+  - The ⌥S canvas toggle has the right label.
+- Security:
+  - AI web_fetch and the library browser can no longer reach localhost or LAN addresses; web_fetch reads at most 2 MB.
+  - The copied MCP client config is marked concealed / local-only.
+  - Names and IDs passed to the editor's JavaScript are no longer spliced into script text.
+- Speed and memory:
+  - Home "Recently" and search scan linked folders in the background instead of on every hover or save.
+  - Sync and orphan scans fetch only IDs instead of whole rows with inline images.
+  - Deleting media no longer parses every drawing.
+  - Media injection into the editor loads only new images.
+  - PDFs and images are passed to the editor as base64 instead of 4×-size script text.
+  - Opened PDFs are released.
+  - Chat thumbnails are decoded at display size.
+  - Video players are no longer rebuilt on every redraw.
+  - PDF exports leave no temporary files.
+
 ### Local build 142
 
 - Drawing previews in the backup browser and History no longer keep the previous drawing's framing when another drawing is selected; rotated rectangles in these previews turn around their centre.

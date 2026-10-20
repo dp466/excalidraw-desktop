@@ -505,9 +505,9 @@ final class CloudStorageDocumentStore: ObservableObject {
         }
 
         let cachedRevision = persistedState.cachedRevisions[reference.itemID]
-        let indexedRevision = persistedState.items.first(where: {
-            $0.id == reference.itemID
-        })?.revision
+        // The index mirrors `persistedState.items`; a linear search here made
+        // folder sync states quadratic in the number of remote files.
+        let indexedRevision = itemsByLocationID[reference.locationID]?[reference.itemID]?.revision
         if cachedRevision != nil, cachedRevision == indexedRevision {
             return .synced(lastVerifiedAt: .distantPast)
         }
@@ -710,7 +710,7 @@ final class CloudStorageDocumentStore: ObservableObject {
         if case .conflict = syncState(for: reference) { return }
 
         let state = persistedStates[reference.locationID] ?? Self.emptyState
-        guard let item = state.items.first(where: { $0.id == reference.itemID }),
+        guard let item = itemsByLocationID[reference.locationID]?[reference.itemID],
               item.kind == .file,
               item.effectiveCapabilities.contains(.download) else { return }
 
@@ -1965,9 +1965,12 @@ final class CloudStorageDocumentStore: ObservableObject {
             )
         }
 
-        state.dirtyItemIDs.insert(reference.itemID)
-        apply(state, to: reference.locationID)
-        try persist(state, for: reference.locationID)
+        // Already-dirty documents leave the index unchanged; rewriting the
+        // whole location index on every autosave cost main-actor time.
+        if state.dirtyItemIDs.insert(reference.itemID).inserted {
+            apply(state, to: reference.locationID)
+            try persist(state, for: reference.locationID)
+        }
 
         let nextGeneration = generation &+ 1
         localContentGenerations[reference.id] = nextGeneration
@@ -2700,9 +2703,11 @@ final class CloudStorageDocumentStore: ObservableObject {
             }
             return Self.replacingItemIdentity(existingItem, using: replacements)
         }
-        state.cachedRevisions = Dictionary(uniqueKeysWithValues: state.cachedRevisions.map { itemID, revision in
+        // A renamed ID can land on a key that is already present (a path
+        // reused after a delete); `uniqueKeysWithValues` trapped on that.
+        state.cachedRevisions = Dictionary(state.cachedRevisions.map { itemID, revision in
             (replacements[itemID] ?? itemID, revision)
-        })
+        }, uniquingKeysWith: { _, migrated in migrated })
         state.dirtyItemIDs = Set(state.dirtyItemIDs.map { replacements[$0] ?? $0 })
         state.metadataOperations = state.metadataOperations
             .filter { $0.id != removingMetadataOperationID }

@@ -23,9 +23,8 @@ class CollabRoomIDCoder {
         var bytes = [UInt8]()
         var index = hex.startIndex
         while index < hex.endIndex {
-            let nextIndex = hex.index(index, offsetBy: 2)
-            // 确保有两个字符可供转换
-            guard nextIndex <= hex.endIndex,
+            // An odd-length string from a pasted link must fail, not trap.
+            guard let nextIndex = hex.index(index, offsetBy: 2, limitedBy: hex.endIndex),
                   let byte = UInt8(hex[index..<nextIndex], radix: 16) else {
                 return nil
             }

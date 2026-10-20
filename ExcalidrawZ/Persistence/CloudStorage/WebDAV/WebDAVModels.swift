@@ -489,15 +489,20 @@ final class WebDAVMultiStatusParser: NSObject, XMLParserDelegate {
 
     private static func iso8601Date(_ value: String?) -> Date? {
         guard let value else { return nil }
-        return ISO8601DateFormatter().date(from: value)
+        return CloudStorageISO8601.date(from: value)
     }
 
-    private static func httpDate(_ value: String?) -> Date? {
-        guard let value else { return nil }
+    /// Built once: a formatter per listed resource dominated PROPFIND parsing.
+    private static let httpDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss zzz"
-        return formatter.date(from: value)
+        return formatter
+    }()
+
+    private static func httpDate(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        return httpDateFormatter.date(from: value)
     }
 }

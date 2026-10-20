@@ -1,5 +1,23 @@
 # Fork validation
 
+## Build 143: line-by-line review of the remaining code (2026-10-20)
+
+- Every source file was read line by line (components, persistence, sync,
+  cloud storage, editor bridge, sidebar, Home, Settings, AI chat, inspectors).
+- New tests: `ArithmeticParserTests` (AI calculator: evaluation, rejection of
+  FUNCTION/CAST and 500-deep nesting), `CollabRoomIDCoderTests` (odd-length
+  room codes trapped before the fix), `MediaCleanupTargetedTests` (targeted
+  media cleanup reaches the same verdict as the full scan),
+  `AIConversationOrderTests`, `CloudStorageDateParsingTests`,
+  `ExpectedFilesEnumerationTests`, `InsertImageTargetTests`,
+  `MoveLocalFolderTests` (caught the /private/var key mismatch),
+  `SyncFilesMediaTests`, `SyncQueueLoadTests`.
+- UI-only fixes without automated tests: canvas search target in
+  collaboration rooms, ⌥S toggle label, checkpoint delete from the detail
+  view, library toasts on the main thread, chat thumbnail downsampling.
+- Full `script/test_local.sh` under `caffeinate -du`: 42 plugin, 62 editor,
+  **125 XCTest** and **26 Swift Testing** cases passed.
+
 ## Build 142: preview framing, annotation save errors (2026-10-20)
 
 - UI-only fixes without new automated tests (SwiftUI preview framing and an

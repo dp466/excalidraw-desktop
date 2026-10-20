@@ -447,49 +447,41 @@ struct LocalFileRowMenuItems: View {
     
     private func duplicateFile() {
         let filesToDuplicate = Array(files)
-        var fileToBeActive: URL? = nil
 
         Task {
             do {
-                guard case .localFolder(let folder) = fileState.currentActiveGroup else { return }
-                try await folder.withSecurityScopedURL { _ async throws in
-
-                    for sourceFile in filesToDuplicate {
-
+                var fileToBeActive: URL? = nil
+                for sourceFile in filesToDuplicate {
+                    // Scope access to each file's own linked folder: the
+                    // menu also appears outside a local-folder view (Home,
+                    // Recent), where no active group grants access.
+                    let newURL = try await LocalFolder.withSecurityScopedAccessToContainingFolder(
+                        for: sourceFile
+                    ) { () async throws -> URL? in
                         let file = try ExcalidrawFile(contentsOf: sourceFile)
-
-                        var newFileName = sourceFile.deletingPathExtension().lastPathComponent
+                        guard let data = file.content else { return nil }
                         // Check collisions where the copy is written (the source's own
                         // folder), not the linked root: otherwise a copy of a file in a
                         // sub-folder could overwrite an existing "Name-1" there.
                         let destinationFolder = sourceFile.deletingLastPathComponent()
-                        while FileManager.default.fileExists(at: destinationFolder.appendingPathComponent(newFileName, conformingTo: .excalidrawFile)) {
-                            let components = newFileName.components(separatedBy: "-")
-                            if components.count == 2, let numComponent = components.last, let index = Int(numComponent) {
-                                newFileName = "\(components[0])-\(index+1)"
-                            } else {
-                                newFileName = "\(newFileName)-1"
-                            }
-                        }
-
-                        let newURL = destinationFolder.appendingPathComponent(newFileName, conformingTo: .excalidrawFile)
-
+                        let newURL = Self.availableDuplicateURL(
+                            for: sourceFile.deletingPathExtension().lastPathComponent,
+                            in: destinationFolder
+                        )
                         // Use FileCoordinator for safe atomic write
-                        guard let data = file.content else { continue }
                         try await FileCoordinator.shared.coordinatedWrite(url: newURL, data: data)
-
-                        if filesToDuplicate.count == 1,
-                           filesToDuplicate[0] == sourceFile {
-                            fileToBeActive = newURL
-                        }
+                        return newURL
                     }
+                    if filesToDuplicate.count == 1 {
+                        fileToBeActive = newURL
+                    }
+                }
 
-                    await MainActor.run {
-                        if let fileToBeActive,
-                           let sourceFile = filesToDuplicate.first,
-                           fileState.currentActiveFile == .localFile(sourceFile) {
-                            fileState.setActiveFile(.localFile(fileToBeActive))
-                        }
+                await MainActor.run { [fileToBeActive] in
+                    if let fileToBeActive,
+                       let sourceFile = filesToDuplicate.first,
+                       fileState.currentActiveFile == .localFile(sourceFile) {
+                        fileState.setActiveFile(.localFile(fileToBeActive))
                     }
                 }
             } catch {
@@ -499,7 +491,26 @@ struct LocalFileRowMenuItems: View {
             }
         }
     }
-    
+
+    /// "Name" -> "Name-1", "Name-1" -> "Name-2"; a dash inside the name
+    /// ("my-plan") is kept instead of growing "my-plan-1-1".
+    private static func availableDuplicateURL(for baseName: String, in folder: URL) -> URL {
+        var stem = baseName
+        var index = 1
+        if let dash = baseName.lastIndex(of: "-"),
+           let number = Int(baseName[baseName.index(after: dash)...]) {
+            stem = String(baseName[..<dash])
+            index = number + 1
+        }
+        while true {
+            let candidate = folder.appendingPathComponent("\(stem)-\(index)", conformingTo: .excalidrawFile)
+            if !FileManager.default.fileExists(at: candidate) {
+                return candidate
+            }
+            index += 1
+        }
+    }
+
     private func moveLocalFile(to targetFolderID: NSManagedObjectID) {
         let context = PersistenceController.shared.container.newBackgroundContext()
         let filesToMove = Array(files)

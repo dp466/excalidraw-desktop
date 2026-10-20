@@ -63,7 +63,6 @@ struct OpenFromURLModifier: ViewModifier {
     @State private var externalURLToBeOpen: URL?
     @State private var isCommandKeyDown = false
 
-    @State private var webViewIsLoadingCancellable: AnyCancellable?
 
 #if os(macOS)
     @State private var window: NSWindow?
@@ -245,6 +244,10 @@ struct OpenFromURLModifier: ViewModifier {
                 targetURL = tempURL
             } catch {
                 self.logger.error("Failed to create ExcalidrawFile from URL: \(url), error: \(error)")
+                // Opening the raw image as a drawing would show a broken
+                // editor (and autosave could write a scene over it).
+                alertToast(error)
+                return
             }
         }
         
@@ -285,35 +288,16 @@ struct OpenFromURLModifier: ViewModifier {
         fileState.setActiveFile(.temporaryFile(targetURL))
 
         if let imageSendToNewFile {
+            // Fixed delays put the image into the wrong drawing, or twice, when
+            // the editor booted slowly; wait until it shows this file instead.
+            let fileID = FileState.ActiveFile.temporaryFile(targetURL).id
             Task {
-                // Wait for boot
-                if fileState.excalidrawWebCoordinator == nil {
-                    try? await Task.sleep(nanoseconds: UInt64(1e+9 * 0.3))
-                }
-                
-                if fileState.excalidrawWebCoordinator?.isLoading == true {
-                    // `sink` delivers the current value synchronously, before the
-                    // cancellable is stored, so self-cancelling there missed and the
-                    // image was inserted twice. Wait once for loading to finish.
-                    self.webViewIsLoadingCancellable = fileState.excalidrawWebCoordinator?.$isLoading
-                        .first(where: { !$0 })
-                        .sink { _ in
-                        Task {
-                            try? await Task.sleep(nanoseconds: UInt64(1e+9 * 2.3))
-                            _ = try? await fileState.excalidrawWebCoordinator?.loadImageToExcalidrawCanvas(
-                                imageData: imageSendToNewFile.0,
-                                type: imageSendToNewFile.1 == .png ? "png" : "svg+xml"
-                            )
-                        }
-                        self.webViewIsLoadingCancellable?.cancel()
-                    }
-                } else {
-                    try? await Task.sleep(nanoseconds: UInt64(1e+9 * 0.3))
-                    _ = try? await fileState.excalidrawWebCoordinator?.loadImageToExcalidrawCanvas(
-                        imageData: imageSendToNewFile.0,
-                        type: imageSendToNewFile.1 == .png ? "png" : "svg+xml"
-                    )
-                }
+                try? await fileState.insertImage(
+                    imageSendToNewFile.0,
+                    type: imageSendToNewFile.1 == .png ? "png" : "svg+xml",
+                    intoFileWithID: fileID,
+                    timeout: 30
+                )
             }
         }
 

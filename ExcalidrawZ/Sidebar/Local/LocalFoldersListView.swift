@@ -78,16 +78,33 @@ struct LocalFoldersListContent: View {
         }
         .animation(.smooth, value: showLocalFolderEmptyPlaceholder)
         .onAppear {
-            for folder in folders {
-                do {
-                    try folder.refreshChildren(context: viewContext)
-                } catch {
-                    alertToast(error)
-                }
-            }
+            refreshFolderTrees(folders.map(\.objectID))
 #if DEBUG
             showLocalFolderEmptyPlaceholder = true
 #endif
+        }
+    }
+
+    /// Walks each linked tree off the main thread: a recursive directory
+    /// scan with a save per folder used to block the sidebar on appear.
+    private func refreshFolderTrees(_ folderIDs: [NSManagedObjectID]) {
+        guard !folderIDs.isEmpty else { return }
+        Task {
+            let context = PersistenceController.shared.newTaskContext()
+            for folderID in folderIDs {
+                do {
+                    try await context.perform {
+                        guard let folder = try context.existingObject(with: folderID) as? LocalFolder else {
+                            return
+                        }
+                        try folder.refreshChildren(context: context)
+                    }
+                } catch {
+                    await MainActor.run {
+                        alertToast(error)
+                    }
+                }
+            }
         }
     }
 

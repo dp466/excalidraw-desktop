@@ -91,14 +91,14 @@ struct ExportFileView: View {
             }
         }
         .task {
-            saveFileToTemp()
             fileName = file.name ?? String(localizable: .newFileNamePlaceholder)
+            // One image load serves both the exporter document and the temp
+            // copy used by Copy, Share and drag.
             do {
                 var fileDocument = file
                 try await fileDocument.syncFiles(context: viewContext)
-                await MainActor.run {
-                    self.fileDocument = fileDocument
-                }
+                self.fileDocument = fileDocument
+                fileURL = try saveFileToTemp(fileDocument)
             } catch {
                 alertToast(error)
             }
@@ -135,7 +135,7 @@ struct ExportFileView: View {
 #if canImport(AppKit)
                     NSPasteboard.general.writeObjects([url])
                     NSPasteboard.general.setString(url.relativeString, forType: .fileURL)
-                    NSPasteboard.general.setData(file.content, forType: .fileContents)
+                    NSPasteboard.general.setData(fileDocument?.content ?? file.content, forType: .fileContents)
 #elseif canImport(UIKit)
                     UIPasteboard.general.setObjects([url])
 #endif
@@ -214,43 +214,30 @@ struct ExportFileView: View {
     }
     
     
-    func saveFileToTemp() {
-        Task {
-            do {
-                let fileManager: FileManager = FileManager.default
-                let directory: URL = try getTempDirectory()
-                let fileExtension = "excalidraw"
-                // A name containing a path separator would point into a missing folder.
-                let baseName = (file.name ?? String(localizable: .newFileNamePlaceholder))
-                    .components(separatedBy: CharacterSet(charactersIn: "/:"))
-                    .joined(separator: "-")
-                let filename = baseName + ".\(fileExtension)"
-                let url = directory.appendingPathComponent(filename, conformingTo: .fileURL)
-                if fileManager.fileExists(atPath: url.path) {
-                    try fileManager.removeItem(at: url)
-                }
+    func saveFileToTemp(_ excalidrawFile: ExcalidrawFile) throws -> URL {
+        let fileManager: FileManager = FileManager.default
+        let directory: URL = try getTempDirectory()
+        let fileExtension = "excalidraw"
+        // A name containing a path separator would point into a missing folder.
+        let baseName = (file.name ?? String(localizable: .newFileNamePlaceholder))
+            .components(separatedBy: CharacterSet(charactersIn: "/:"))
+            .joined(separator: "-")
+        let filename = baseName + ".\(fileExtension)"
+        let url = directory.appendingPathComponent(filename, conformingTo: .fileURL)
+        if fileManager.fileExists(atPath: url.path) {
+            try fileManager.removeItem(at: url)
+        }
 
-                var excalidrawFile = file
-                try await excalidrawFile.syncFiles(context: viewContext)
-                guard let fileData = excalidrawFile.content else {
-                    struct NoContentError: LocalizedError {
-                        var errorDescription: String? {
-                            "The file has no data."
-                        }
-                    }
-                    throw NoContentError()
-                }
-
-                try fileData.write(to: url, options: .atomic)
-                
-                await MainActor.run {
-                    fileURL = url
-                }
-            } catch {
-                await MainActor.run {
-                    alertToast(error)
+        guard let fileData = excalidrawFile.content else {
+            struct NoContentError: LocalizedError {
+                var errorDescription: String? {
+                    "The file has no data."
                 }
             }
+            throw NoContentError()
         }
+
+        try fileData.write(to: url, options: .atomic)
+        return url
     }
 }

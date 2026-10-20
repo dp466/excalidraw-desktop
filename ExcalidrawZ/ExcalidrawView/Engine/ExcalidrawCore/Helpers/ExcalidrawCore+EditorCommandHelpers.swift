@@ -78,9 +78,10 @@ extension ExcalidrawCore {
         } else {
             toolbarKey = key.uppercased()
         }
+        // Pass the key as an argument: a quote or backslash key must not break the script.
         _ = try await webView.callAsyncJavaScript(
-            "window.excalidrawZHelper.toggleToolbarAction('\(toolbarKey)');",
-            arguments: [:],
+            "window.excalidrawZHelper.toggleToolbarAction(toolbarKey);",
+            arguments: ["toolbarKey": toolbarKey],
             contentWorld: .page
         )
     }

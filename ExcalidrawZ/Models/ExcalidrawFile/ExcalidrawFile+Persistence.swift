@@ -110,9 +110,13 @@ extension ExcalidrawFile {
     }
     
     mutating func syncFiles(context: NSManagedObjectContext) async throws {
-        let mediasFetchRequest = NSFetchRequest<MediaItem>(entityName: "MediaItem")
-        mediasFetchRequest.predicate = NSPredicate(format: "file.id == %@", self.id as CVarArg)
-        let medias: [MediaItem] = try context.fetch(mediasFetchRequest)
+        let fileID = self.id
+        // Callers pass background contexts, which may only be used on their own queue.
+        let medias: [MediaItem] = try await context.perform {
+            let mediasFetchRequest = NSFetchRequest<MediaItem>(entityName: "MediaItem")
+            mediasFetchRequest.predicate = NSPredicate(format: "file.id == %@", fileID as CVarArg)
+            return try context.fetch(mediasFetchRequest)
+        }
 
         // Load all ResourceFiles concurrently
         let resourceFiles = try await withThrowingTaskGroup(of: ExcalidrawFile.ResourceFile?.self) { group in
@@ -158,8 +162,18 @@ extension ExcalidrawFile.ResourceFile {
 
     /// Initialize from MediaItem - async version with iCloud Drive support
     init(mediaItem: MediaItem) async throws {
-        guard let id = mediaItem.id else {
-            struct MissingIDError: Error {}
+        struct MissingIDError: Error {}
+        // Read attributes on the object's own queue; callers run in task groups.
+        let objectID = mediaItem.objectID
+        let read = { (item: MediaItem?) in
+            (item?.id, item?.createdAt, item?.lastRetrievedAt, item?.mimeType)
+        }
+        let (mediaID, createdAt, lastRetrievedAt, mimeType) = if let context = mediaItem.managedObjectContext {
+            await context.perform { read(context.object(with: objectID) as? MediaItem) }
+        } else {
+            read(mediaItem)
+        }
+        guard let id = mediaID else {
             throw MissingIDError()
         }
 
@@ -167,8 +181,8 @@ extension ExcalidrawFile.ResourceFile {
 
         self.id = id
         self.dataURL = dataURL
-        self.createdAt = mediaItem.createdAt ?? Date.distantPast
-        self.lastRetrievedAt = mediaItem.lastRetrievedAt ?? Date.distantPast
-        self.mimeType = mediaItem.mimeType ?? "image/png"
+        self.createdAt = createdAt ?? Date.distantPast
+        self.lastRetrievedAt = lastRetrievedAt ?? Date.distantPast
+        self.mimeType = mimeType ?? "image/png"
     }
 }

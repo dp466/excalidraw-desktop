@@ -115,19 +115,19 @@ struct SyncStatusContentView: View {
             ZStack {
                 if let progress = syncState.overallProgress {
                     if #available(iOS 17.0, macOS 14.0, *) {
-                        Text("\(Int(Double(progress.current) / Double(progress.total) * 100))%")
-                            .contentTransition(.numericText(value: Double(progress.current) / Double(progress.total) * 100))
-                            .animation(.smooth, value: Double(progress.current) / Double(progress.total) * 100)
+                        Text("\(Int(percent(progress)))%")
+                            .contentTransition(.numericText(value: percent(progress)))
+                            .animation(.smooth, value: percent(progress))
                     } else {
-                        Text("\(Int(Double(progress.current) / Double(progress.total) * 100))%")
+                        Text("\(Int(percent(progress)))%")
                     }
                 } else if let progress = syncState.mediaItemsDownloadProgress {
                     if #available(iOS 17.0, macOS 14.0, *) {
-                        Text("\(Int(Double(progress.current) / Double(progress.total) * 100))%")
-                            .contentTransition(.numericText(value: Double(progress.current) / Double(progress.total) * 100))
-                            .animation(.smooth, value: Double(progress.current) / Double(progress.total) * 100)
+                        Text("\(Int(percent(progress)))%")
+                            .contentTransition(.numericText(value: percent(progress)))
+                            .animation(.smooth, value: percent(progress))
                     } else {
-                        Text("\(Int(Double(progress.current) / Double(progress.total) * 100))%")
+                        Text("\(Int(percent(progress)))%")
                     }
                 }
             }
@@ -142,6 +142,12 @@ struct SyncStatusContentView: View {
     }
     
     // MARK: - Computed Properties
+
+    /// Work queued during a run can push `current` past `total`.
+    private func percent(_ progress: (current: Int, total: Int)) -> Double {
+        guard progress.total > 0 else { return 0 }
+        return min(max(Double(progress.current) / Double(progress.total), 0), 1) * 100
+    }
     
     /// Headline text (main progress message)
     @ViewBuilder

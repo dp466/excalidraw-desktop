@@ -295,26 +295,30 @@ struct NewFileButton: View {
                 }
 #endif
                 
+                func libraryFileID(_ objectID: NSManagedObjectID) -> String? {
+                    (viewContext.object(with: objectID) as? File).map { FileState.ActiveFile.file($0).id }
+                }
+                var targetFileID: String?
                 if case .group(let group) = fileState.currentActiveGroup {
-                    try await fileState.createNewFile(
+                    let fileID = try await fileState.createNewFile(
                         in: group.objectID,
                         context: viewContext,
                     )
+                    targetFileID = libraryFileID(fileID)
                 } else if case .localFolder(let folder) = fileState.currentActiveGroup {
-                    try await folder.withSecurityScopedURL { scopedURL in
-                        do {
-                            if let url = try await fileState.createNewLocalFile(folderURL: scopedURL) {
-                                localFolderState.itemCreatedPublisher.send(url.filePath)
-                            }
-                        } catch {
-                            alertToast(error)
-                        }
+                    let url: URL? = try await folder.withSecurityScopedURL { scopedURL in
+                        try await fileState.createNewLocalFile(folderURL: scopedURL)
+                    }
+                    if let url {
+                        localFolderState.itemCreatedPublisher.send(url.filePath)
+                        targetFileID = FileState.ActiveFile.localFile(url).id
                     }
                 } else if case .cloudStorageFolder(let folder) = fileState.currentActiveGroup {
                     let reference = try await CloudStorageDocumentStore.shared.createDocument(
                         in: folder
                     )
                     fileState.setActiveFile(.cloudStorageFile(reference))
+                    targetFileID = FileState.ActiveFile.cloudStorageFile(reference).id
                 } else {
                     let defaultGroup = try await viewContext.perform {
                         try PersistenceController.shared.getDefaultGroup(
@@ -322,19 +326,17 @@ struct NewFileButton: View {
                         )
                     }
                     if let defaultGroup {
-                        try await fileState.createNewFile(
+                        let fileID = try await fileState.createNewFile(
                             in: defaultGroup.objectID,
                             context: viewContext,
                         )
+                        targetFileID = libraryFileID(fileID)
                     }
                 }
                 
-                try await Task.sleep(nanoseconds: UInt64(1e+9 * 0.5))
-                // drop clipboard data to current file
-                try await fileState.excalidrawWebCoordinator?.loadImageToExcalidrawCanvas(
-                    imageData: pngData,
-                    type: "png"
-                )
+                // Insert into the new drawing only, never into the one open before it.
+                guard let targetFileID else { return }
+                try await fileState.insertImage(pngData, type: "png", intoFileWithID: targetFileID)
             } catch {
                 alert(error: error)
             }

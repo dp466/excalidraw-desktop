@@ -130,7 +130,7 @@ struct AddLibraryItemToCanvasTool: Tool {
         let ctx = PersistenceController.shared.newTaskContext()
         return try await ctx.perform {
             let libFetch = NSFetchRequest<Library>(entityName: "Library")
-            libFetch.predicate = NSPredicate(format: "id == %@", libraryID as CVarArg)
+            libFetch.predicate = NSPredicate(format: "id == %@", (UUID(uuidString: libraryID) as CVarArg?) ?? libraryID as CVarArg)
             libFetch.fetchLimit = 1
             guard let library = try ctx.fetch(libFetch).first else {
                 throw ToolError.executionFailed("Library not found: \(libraryID)")

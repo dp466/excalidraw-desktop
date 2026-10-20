@@ -23,6 +23,21 @@ extension Notification.Name {
     )
 }
 
+/// Provider timestamps. Building two formatters for every decoded date was
+/// a large part of decoding a folder listing; the formatters are thread-safe.
+enum CloudStorageISO8601 {
+    private static let fractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    private static let standard = ISO8601DateFormatter()
+
+    static func date(from value: String) -> Date? {
+        fractional.date(from: value) ?? standard.date(from: value)
+    }
+}
+
 struct CloudStorageItemIdentityChange: Sendable {
     let location: CloudStorageLocation
     let replacements: [CloudStorageItemID: CloudStorageItem]

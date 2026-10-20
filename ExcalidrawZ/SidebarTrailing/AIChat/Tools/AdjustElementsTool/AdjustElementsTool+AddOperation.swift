@@ -616,7 +616,7 @@ private enum ImageURLResourceLoader {
                 message: "Image URL source must not include credentials."
             )
         }
-        guard !isBlockedHost(host) else {
+        guard !PublicNetworkHostPolicy.isBlockedHost(host) else {
             throw AdjustElementsMiddleware.AdjustmentError(
                 message: """
                 Image URL host "\(host)" is local or private. Use a public HTTPS image URL, or \
@@ -662,7 +662,37 @@ private enum ImageURLResourceLoader {
         }
     }
 
-    private static func isBlockedHost(_ host: String) -> Bool {
+}
+
+private extension Dictionary where Key == String, Value == ExcalidrawCore.JSONValue {
+    func stringValue(forKey key: String) -> String? {
+        guard case .string(let value)? = self[key] else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+private extension ExcalidrawFile.ResourceFile {
+    var jsonValue: ExcalidrawCore.JSONValue {
+        var object: [String: ExcalidrawCore.JSONValue] = [
+            "mimeType": .string(mimeType),
+            "id": .string(id),
+            "dataURL": .string(dataURL)
+        ]
+        if let createdAt {
+            object["created"] = .number(createdAt.timeIntervalSince1970 * 1000)
+        }
+        if let lastRetrievedAt {
+            object["lastRetrieved"] = .number(lastRetrievedAt.timeIntervalSince1970 * 1000)
+        }
+        return .object(object)
+    }
+}
+
+/// Hosts AI-driven fetches must not reach: loopback, link-local, private
+/// and multicast ranges (the app's own loopback servers, LAN devices).
+enum PublicNetworkHostPolicy {
+    static func isBlockedHost(_ host: String) -> Bool {
         let normalized = host
             .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -730,30 +760,5 @@ private enum ImageURLResourceLoader {
             default:
                 return false
         }
-    }
-}
-
-private extension Dictionary where Key == String, Value == ExcalidrawCore.JSONValue {
-    func stringValue(forKey key: String) -> String? {
-        guard case .string(let value)? = self[key] else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-}
-
-private extension ExcalidrawFile.ResourceFile {
-    var jsonValue: ExcalidrawCore.JSONValue {
-        var object: [String: ExcalidrawCore.JSONValue] = [
-            "mimeType": .string(mimeType),
-            "id": .string(id),
-            "dataURL": .string(dataURL)
-        ]
-        if let createdAt {
-            object["created"] = .number(createdAt.timeIntervalSince1970 * 1000)
-        }
-        if let lastRetrievedAt {
-            object["lastRetrieved"] = .number(lastRetrievedAt.timeIntervalSince1970 * 1000)
-        }
-        return .object(object)
     }
 }

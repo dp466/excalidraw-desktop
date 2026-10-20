@@ -25,8 +25,16 @@ struct Migration_ExtractMediaItems: MigrationVersion {
 
     func checkIfShouldMigrate() async throws -> Bool {
         try await context.perform {
-            let files = try filesFetch.execute()
-            let checkpoints = try checkpointsFetch.execute()
+            // Runs at every launch. Rows without inline content are skipped
+            // below anyway; leave them out of the fetch instead of loading
+            // every drawing and checkpoint.
+            let inlineContent = NSPredicate(format: "content != nil")
+            let filesWithContent = NSFetchRequest<File>(entityName: "File")
+            filesWithContent.predicate = inlineContent
+            let checkpointsWithContent = NSFetchRequest<FileCheckpoint>(entityName: "FileCheckpoint")
+            checkpointsWithContent.predicate = inlineContent
+            let files = try context.fetch(filesWithContent)
+            let checkpoints = try context.fetch(checkpointsWithContent)
 
             let needMigrate: Bool = {
                 let excalidrawFiles =

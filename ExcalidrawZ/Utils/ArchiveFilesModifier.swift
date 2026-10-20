@@ -506,8 +506,10 @@ func backupAllCloudFiles(
                 }
                 let filePath: String = fileURL.filePath
                 let backupContent = try EncryptedBackupService.encrypt(archiveData.content)
-                if !filemanager.createFile(atPath: filePath, contents: backupContent) {
+                // A drawing missing from a backup must be reported, not only logged.
+                guard filemanager.createFile(atPath: filePath, contents: backupContent) else {
                     archiveFilesLogger.error("Failed to write backup file to \(filePath)")
+                    throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: filePath])
                 }
             } catch let error as EncryptedContentError {
                 if error.isContentLocked {

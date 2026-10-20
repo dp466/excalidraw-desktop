@@ -307,8 +307,10 @@ extension PromptInputView {
                             }
                         }
                     } else {
+                        // Use the id captured when the send began: the user can
+                        // switch or clear the chat during the awaits above.
                         try await llmState.sendMessage(
-                            to: self.conversationID!,
+                            to: conversationIDForSession,
                             model: model,
                             message: .content(userMessage),
                             metadata: metadata,

@@ -43,6 +43,16 @@ xcodebuild -project "$SOURCE_ROOT/ExcalidrawZ.xcodeproj" -scheme ExcalidrawZ -co
   -only-testing:ExcalidrawZTests/MCPNumberBoundsTests \
   -only-testing:ExcalidrawZTests/ExportToDiskTests \
   -only-testing:ExcalidrawZTests/ImageSceneDecoderTests \
+  -only-testing:ExcalidrawZTests/InsertImageTargetTests \
+  -only-testing:ExcalidrawZTests/SyncFilesMediaTests \
+  -only-testing:ExcalidrawZTests/MediaCleanupTargetedTests \
+  -only-testing:ExcalidrawZTests/CollabRoomIDCoderTests \
+  -only-testing:ExcalidrawZTests/ArithmeticParserTests \
+  -only-testing:ExcalidrawZTests/MoveLocalFolderTests \
+  -only-testing:ExcalidrawZTests/CloudStorageDateParsingTests \
+  -only-testing:ExcalidrawZTests/ExpectedFilesEnumerationTests \
+  -only-testing:ExcalidrawZTests/SyncQueueLoadTests \
+  -only-testing:ExcalidrawZTests/AIConversationOrderTests \
   -only-testing:ExcalidrawZTests/TransferableFileNameTests \
   -only-testing:ExcalidrawZTests/ImportFilesTests \
   -only-testing:ExcalidrawZTests/AIToolNumberBoundsTests \

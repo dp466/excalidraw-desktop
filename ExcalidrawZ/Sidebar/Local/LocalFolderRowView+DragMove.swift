@@ -163,7 +163,7 @@ struct LocalFolderDropModifier: ViewModifier {
                         self.dropFileCallback?(success)
                     }
                 } onCancel: {
-                    self.dropGroupCallback?(false)
+                    self.dropFileCallback?(false)
                 }
             }
             .sheet(

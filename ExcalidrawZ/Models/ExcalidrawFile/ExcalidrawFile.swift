@@ -43,7 +43,12 @@ struct ExcalidrawFile: Codable, Hashable, Identifiable, Sendable {
     /// move so a save still bound to the old path can follow the file.
     static func moveLocalFileID(from source: URL, to destination: URL) {
         withLocalFileIDs { storage in
-            if let id = storage.removeValue(forKey: source) {
+            // Enumerators may return /private/var for a file registered as /var.
+            // The source no longer exists here, so compare paths without disk access.
+            let key = storage[source] != nil ? source : storage.keys.first {
+                comparablePath($0) == comparablePath(source)
+            }
+            if let key, let id = storage.removeValue(forKey: key) {
                 storage[destination] = id
             }
         }
@@ -54,6 +59,11 @@ struct ExcalidrawFile: Codable, Hashable, Identifiable, Sendable {
         if recentLocalFileMoveOrder.count > 128 {
             recentLocalFileMoves[recentLocalFileMoveOrder.removeFirst()] = nil
         }
+    }
+
+    private static func comparablePath(_ url: URL) -> String {
+        let path = url.standardizedFileURL.path
+        return path.hasPrefix("/private/") ? String(path.dropFirst("/private".count)) : path
     }
 
     private static let localFileMoveLock = NSLock()
@@ -126,12 +136,14 @@ struct ExcalidrawFile: Codable, Hashable, Identifiable, Sendable {
             let container: KeyedDecodingContainer<CodingKeys> = try decoder.container(keyedBy: CodingKeys.self)
             self.mimeType = try container.decode(String.self, forKey: ExcalidrawFile.ResourceFile.CodingKeys.mimeType)
             self.id = try container.decode(String.self, forKey: .id)
-            if let created = try container.decodeIfPresent(Int.self, forKey: .createdAt) {
-                self.createdAt = Date(timeIntervalSince1970: TimeInterval(created) / 1000)
+            // Timestamps are milliseconds; other tools write them with a
+            // fraction, which an Int decode rejected along with the drawing.
+            if let created = try container.decodeIfPresent(Double.self, forKey: .createdAt) {
+                self.createdAt = Date(timeIntervalSince1970: created / 1000)
             }
             self.dataURL = try container.decode(String.self, forKey: .dataURL)
-            if let lastRetrieved = try container.decodeIfPresent(Int.self, forKey: .lastRetrievedAt) {
-                let lastRetrievedAt = Date(timeIntervalSince1970: TimeInterval(lastRetrieved) / 1000)
+            if let lastRetrieved = try container.decodeIfPresent(Double.self, forKey: .lastRetrievedAt) {
+                let lastRetrievedAt = Date(timeIntervalSince1970: lastRetrieved / 1000)
                 self.lastRetrievedAt = lastRetrievedAt
                 if lastRetrievedAt.timeIntervalSinceNow > 0 {
                     self.lastRetrievedAt = Date(

@@ -21,7 +21,10 @@ extension PersistenceController {
 
             // Fallback behavior: Move trashed files from trash group to default group
             do {
+                // Only files still in the legacy trash group; fetching every
+                // file at each launch to test this in memory was wasted work.
                 let filesFetch: NSFetchRequest<File> = NSFetchRequest(entityName: "File")
+                filesFetch.predicate = NSPredicate(format: "group.type == %@", Group.GroupType.trash.rawValue)
                 let groupsFetch: NSFetchRequest<Group> = NSFetchRequest(entityName: "Group")
 
                 let context = self.newTaskContext()

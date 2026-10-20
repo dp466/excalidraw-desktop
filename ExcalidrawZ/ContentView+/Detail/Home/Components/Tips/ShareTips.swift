@@ -36,7 +36,7 @@ struct ShareTipsDetail: View {
                     .font(.title3.bold())
                 
                 AutoContainVideoPlayer(
-                    url: URL(string: "https://pub-2983ae3d3c894bd08530707492e919db.r2.dev/ExcalidrawZ - Share image.mov")!,
+                    url: URL(string: "https://pub-2983ae3d3c894bd08530707492e919db.r2.dev/ExcalidrawZ%20-%20Share%20image.mov")!,
                     baseAxis: .horizontal
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 30))
@@ -50,7 +50,7 @@ struct ShareTipsDetail: View {
                     .font(.title3.bold())
                 
                 AutoContainVideoPlayer(
-                    url: URL(string: "https://pub-2983ae3d3c894bd08530707492e919db.r2.dev/ExcalidrawZ - Share file.mov")!,
+                    url: URL(string: "https://pub-2983ae3d3c894bd08530707492e919db.r2.dev/ExcalidrawZ%20-%20Share%20file.mov")!,
                     baseAxis: .horizontal
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 30))
@@ -65,7 +65,7 @@ struct ShareTipsDetail: View {
                     .font(.title3.bold())
                 
                 AutoContainVideoPlayer(
-                    url: URL(string: "https://pub-2983ae3d3c894bd08530707492e919db.r2.dev/ExcalidrawZ - Share PDF.mov")!,
+                    url: URL(string: "https://pub-2983ae3d3c894bd08530707492e919db.r2.dev/ExcalidrawZ%20-%20Share%20PDF.mov")!,
                     baseAxis: .horizontal
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 30))

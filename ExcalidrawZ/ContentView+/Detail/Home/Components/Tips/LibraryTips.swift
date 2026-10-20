@@ -31,7 +31,7 @@ struct LibraryTipsDetail: View {
             Text(localizable: .tipsLibraryDetailImportUseTitle).font(.headline)
             
             AutoContainVideoPlayer(
-                url: URL(string: "https://pub-2983ae3d3c894bd08530707492e919db.r2.dev/ExcalidrawZ - Library import.mov")!
+                url: URL(string: "https://pub-2983ae3d3c894bd08530707492e919db.r2.dev/ExcalidrawZ%20-%20Library%20import.mov")!
             )
             .clipShape(RoundedRectangle(cornerRadius: 30))
             
@@ -41,7 +41,7 @@ struct LibraryTipsDetail: View {
             Text(localizable: .tipsLibraryDetailAddExportTitle).font(.headline)
             
             AutoContainVideoPlayer(
-                url: URL(string: "https://pub-2983ae3d3c894bd08530707492e919db.r2.dev/ExcalidrawZ - Library Add&Export.mov")!
+                url: URL(string: "https://pub-2983ae3d3c894bd08530707492e919db.r2.dev/ExcalidrawZ%20-%20Library%20Add&Export.mov")!
             )
             .clipShape(RoundedRectangle(cornerRadius: 30))
             

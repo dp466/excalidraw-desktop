@@ -141,7 +141,9 @@ struct SidebarRowDropModifier: ViewModifier {
                             case .localFile(let url):
                                 if topLevelFolders.contains(where: {
                                     if let folderURL = $0.url {
-                                        return url.filePath.contains(folderURL.filePath)
+                                        // Path-component containment: a substring match
+                                        // treated "Drawings-old/a" as inside "Drawings".
+                                        return url.isContained(in: folderURL)
                                     } else {
                                         return false
                                     }

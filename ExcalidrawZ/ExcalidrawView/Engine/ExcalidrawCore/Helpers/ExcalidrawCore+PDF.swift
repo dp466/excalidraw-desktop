@@ -37,10 +37,6 @@ extension ExcalidrawCore {
         height: Double = 800,
         totalPages: Int? = nil
     ) async throws -> String {
-        var buffer = [UInt8](repeating: 0, count: pdfData.count)
-        pdfData.copyBytes(to: &buffer, count: pdfData.count)
-        let buf = buffer
-
         // Get page count from PDF if not provided
         let pageCount: Int
         if let providedPages = totalPages {
@@ -59,7 +55,9 @@ extension ExcalidrawCore {
 
         _ = try await webView.callAsyncJavaScript(
             """
-            const bytes = new Uint8Array(\(buf));
+            const binary = atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
             await window.excalidrawZHelper.loadPDFViewer(bytes.buffer, {
                 x: \(x),
                 y: \(y),
@@ -68,7 +66,9 @@ extension ExcalidrawCore {
                 totalPages: \(pageCount)
             });
             """,
-            arguments: [:],
+            // Passed as base64: printing the bytes as a JS array literal built a
+            // script several times the PDF size.
+            arguments: ["base64": pdfData.base64EncodedString()],
             contentWorld: .page
         )
         return ""

@@ -98,6 +98,7 @@ public actor ICloudConflictResolver {
             let chosenData = try Data(contentsOf: chosenVersionURL)
 
             var coordinationError: NSError?
+            var writeError: Error?
             let coordinator = NSFileCoordinator()
 
             coordinator.coordinate(
@@ -108,11 +109,14 @@ public actor ICloudConflictResolver {
                 do {
                     try chosenData.write(to: coordinatedURL, options: .atomic)
                 } catch {
-                    logger.error("Failed to write chosen version: \(error)")
+                    writeError = error
                 }
             }
 
-            if let error = coordinationError {
+            // The other versions are discarded below; never do that unless the
+            // chosen version actually replaced the current file.
+            if let error = coordinationError ?? writeError {
+                logger.error("Failed to write chosen version: \(error)")
                 throw ConflictError.replaceFailed(error)
             }
         }

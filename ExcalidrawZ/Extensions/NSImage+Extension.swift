@@ -65,6 +65,8 @@ extension NSImage {
     ///
     ///  - returns: The resized copy of the given image.
     func resizeWhileMaintainingAspectRatioToSize(size: NSSize) -> NSImage? {
+        // An empty image gives an infinite scale factor.
+        guard self.size.width > 0, self.size.height > 0 else { return nil }
         let widthRatio = size.width / self.size.width
         let heightRatio = size.height / self.size.height
         let scaleFactor = min(widthRatio, heightRatio) // Use the smaller ratio to fit within the size

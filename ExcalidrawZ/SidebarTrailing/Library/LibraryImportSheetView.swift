@@ -356,7 +356,9 @@ struct ExcalidrawLibraryImportSheetView: View {
                 }
                 try context.save()
             } catch {
-                alertToast(error)
+                DispatchQueue.main.async {
+                    alertToast(error)
+                }
             }
         }
         dismiss()

@@ -219,7 +219,9 @@ private struct LibraryBrowserWebView: _ViewRepresentable {
             guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
                   let raw = components.queryItems?.first(where: { $0.name == "addLibrary" })?.value,
                   let libURL = URL(string: raw),
-                  ["http", "https"].contains(libURL.scheme?.lowercased() ?? "") else {
+                  ["http", "https"].contains(libURL.scheme?.lowercased() ?? ""),
+                  let libHost = libURL.host,
+                  !PublicNetworkHostPolicy.isBlockedHost(libHost) else {
                 return nil
             }
             return libURL

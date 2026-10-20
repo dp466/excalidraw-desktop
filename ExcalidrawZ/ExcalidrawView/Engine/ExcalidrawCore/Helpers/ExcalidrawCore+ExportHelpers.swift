@@ -340,8 +340,11 @@ extension ExcalidrawCore {
             withBackground: withBackground,
             colorScheme: colorScheme
         )
-        let svgURL = try getTempDirectory()
-            .appendingPathComponent("\(UUID().uuidString).svg")
+        let svgDirectory = try getTempDirectory()
+        let svgURL = svgDirectory.appendingPathComponent("\(UUID().uuidString).svg")
+        // Each call gets a fresh replacement directory; the PDF is returned as
+        // data, so the intermediate SVG (with embedded images) must not pile up.
+        defer { try? FileManager.default.removeItem(at: svgDirectory) }
         try svgData.write(to: svgURL)
         return try await renderPDFData(from: svgURL, filename: name)
     }

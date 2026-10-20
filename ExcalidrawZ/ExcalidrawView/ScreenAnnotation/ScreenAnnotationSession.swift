@@ -633,8 +633,9 @@ final class ScreenAnnotationSession: ObservableObject {
                     select(tool)
                 }
             case .char(let character):
+                // Encode the key: a quote or backslash must not break the script.
                 run(
-                    "window.excalidrawZHelper?.toggleToolbarAction('\(character)');"
+                    "window.excalidrawZHelper?.toggleToolbarAction(\(String(character).jsStringLiteral));"
                 )
             case .space:
                 run("window.excalidrawZHelper?.toggleToolbarAction(' ');")

@@ -56,9 +56,10 @@ extension ExcalidrawMCPAppBridge {
             else if let svg = result["svg"]?.stringValue {
                 let svgData = Data(svg.utf8)
                 if format == "pdf" {
-                    let temporary = try getTempDirectory().appendingPathComponent(UUID().uuidString + ".svg")
+                    let temporaryDirectory = try getTempDirectory()
+                    let temporary = temporaryDirectory.appendingPathComponent(UUID().uuidString + ".svg")
+                    defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
                     try svgData.write(to: temporary, options: .atomic)
-                    defer { try? FileManager.default.removeItem(at: temporary) }
                     data = try await renderPDFData(from: temporary, filename: base)
                 } else { data = svgData }
             } else { throw ExcalidrawMCPCommandError(code: "export_failed", message: "The editor returned no export data.") }

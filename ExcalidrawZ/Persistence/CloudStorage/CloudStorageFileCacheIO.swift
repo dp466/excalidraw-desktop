@@ -42,7 +42,10 @@ actor CloudStorageFileCacheIO {
     /// Atomically compares and writes inside this actor so a remote install
     /// cannot slip between a local save's comparison and replacement.
     func writeIfDifferent(_ data: Data, to url: URL) throws -> Bool {
-        if fileManager.fileExists(atPath: url.path),
+        // Compare sizes first: most saves change the length, and reading the
+        // whole cached drawing back is then unnecessary.
+        if let size = (try? fileManager.attributesOfItem(atPath: url.path))?[.size] as? NSNumber,
+           size.intValue == data.count,
            try Data(contentsOf: url) == data {
             return false
         }

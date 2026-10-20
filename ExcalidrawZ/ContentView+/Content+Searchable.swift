@@ -112,31 +112,13 @@ struct SearchResultsProvider: View {
         Task {
             isSearching = true
             do {
+                let searchLocalFiles = await LocalFolderFileSearch.matchingFiles(searchText)
                 try await viewContext.perform {
                     let fileFetchRequest = NSFetchRequest<File>(entityName: "File")
                     if !searchText.isEmpty {
                         fileFetchRequest.predicate = NSPredicate(format: "name CONTAINS[cd] %@", searchText)
                     }
                     let searchFiles = try viewContext.fetch(fileFetchRequest)
-                    
-                    var searchLocalFiles: [URL] = []
-                    let localFolderFetchRequest = NSFetchRequest<LocalFolder>(entityName: "LocalFolder")
-                    let localFolders = try viewContext.fetch(localFolderFetchRequest)
-                    for folder in localFolders {
-                        let localFiles = try folder.withSecurityScopedURL { scopedURL in
-                            let contents = try FileManager.default.contentsOfDirectory(at: scopedURL, includingPropertiesForKeys: [])
-                            return contents
-                                .filter({$0.pathExtension == "excalidraw"})
-                                .filter({
-                                    searchText.isEmpty ||
-                                    $0.deletingPathExtension().lastPathComponent.range(
-                                        of: searchText,
-                                        options: [.caseInsensitive, .diacriticInsensitive]
-                                    ) != nil
-                                })
-                        }
-                        searchLocalFiles.append(contentsOf: localFiles)
-                    }
                     
                     let collaborationFilesFetchRequest = NSFetchRequest<CollaborationFile>(entityName: "CollaborationFile")
                     if !searchText.isEmpty {
@@ -165,6 +147,34 @@ struct SearchResultsProvider: View {
                 needsAnotherSearch = false
                 fetchFiles()
             }
+        }
+    }
+}
+
+/// Scans linked folders off the main thread. An unavailable folder is
+/// skipped: one missing bookmark used to fail the whole search.
+private enum LocalFolderFileSearch {
+    static func matchingFiles(_ searchText: String) async -> [URL] {
+        let context = PersistenceController.shared.newTaskContext()
+        return await context.perform {
+            let request = NSFetchRequest<LocalFolder>(entityName: "LocalFolder")
+            guard let folders = try? context.fetch(request) else { return [] }
+            var results: [URL] = []
+            for folder in folders {
+                let files = try? folder.withSecurityScopedURL { scopedURL in
+                    try FileManager.default.contentsOfDirectory(at: scopedURL, includingPropertiesForKeys: [])
+                        .filter { $0.pathExtension == "excalidraw" }
+                        .filter {
+                            searchText.isEmpty ||
+                            $0.deletingPathExtension().lastPathComponent.range(
+                                of: searchText,
+                                options: [.caseInsensitive, .diacriticInsensitive]
+                            ) != nil
+                        }
+                }
+                results.append(contentsOf: files ?? [])
+            }
+            return results
         }
     }
 }
@@ -470,31 +480,13 @@ struct SerachContent: View {
         Task {
             isSearching = true
             do {
+                let searchLocalFiles = await LocalFolderFileSearch.matchingFiles(searchText)
                 try await viewContext.perform {
                     let fileFetchRequest = NSFetchRequest<File>(entityName: "File")
                     if !searchText.isEmpty {
                         fileFetchRequest.predicate = NSPredicate(format: "name CONTAINS[cd] %@", searchText)
                     }
                     let searchFiles = try viewContext.fetch(fileFetchRequest)
-                    
-                    var searchLocalFiles: [URL] = []
-                    let localFolderFetchRequest = NSFetchRequest<LocalFolder>(entityName: "LocalFolder")
-                    let localFolders = try viewContext.fetch(localFolderFetchRequest)
-                    for folder in localFolders {
-                        let localFiles = try folder.withSecurityScopedURL { scopedURL in
-                            let contents = try FileManager.default.contentsOfDirectory(at: scopedURL, includingPropertiesForKeys: [])
-                            return contents
-                                .filter({$0.pathExtension == "excalidraw"})
-                                .filter({
-                                    searchText.isEmpty ||
-                                    $0.deletingPathExtension().lastPathComponent.range(
-                                        of: searchText,
-                                        options: [.caseInsensitive, .diacriticInsensitive]
-                                    ) != nil
-                                })
-                        }
-                        searchLocalFiles.append(contentsOf: localFiles)
-                    }
                     
                     let collaborationFilesFetchRequest = NSFetchRequest<CollaborationFile>(entityName: "CollaborationFile")
                     if !searchText.isEmpty {

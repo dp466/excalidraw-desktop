@@ -106,15 +106,29 @@ actor MediaCleanupCoordinator {
     private init() {}
 
     func scan() async throws -> MediaCleanupAnalysis {
+        try await analyze(targetMediaObjectURIs: nil)
+    }
+
+    /// - Parameter targetMediaObjectURIs: When set, only these media items are
+    ///   classified. Content that cannot mention their IDs is not parsed, and
+    ///   checkpoints are not read at all when current files still use them all.
+    private func analyze(targetMediaObjectURIs: Set<URL>?) async throws -> MediaCleanupAnalysis {
         let context = PersistenceController.shared.newTaskContext()
         let snapshot = try await makeScanSnapshot(context: context)
+
+        let consideredMedias = targetMediaObjectURIs.map { targets in
+            snapshot.medias.filter { targets.contains($0.objectID.uriRepresentation()) }
+        } ?? snapshot.medias
+        let watchedMediaIDs: Set<String>? = targetMediaObjectURIs == nil
+            ? nil
+            : Set(consideredMedias.compactMap(\.mediaID).filter { !$0.isEmpty })
 
         var currentReferences: Set<String> = []
         var hasUnreadableCurrentContent = false
         for file in snapshot.currentFiles {
             do {
                 let data = try await loadContent(file.content)
-                currentReferences.formUnion(try referencedMediaIDs(in: data))
+                currentReferences.formUnion(try referencedMediaIDs(in: data, among: watchedMediaIDs))
             } catch {
                 hasUnreadableCurrentContent = true
             }
@@ -122,10 +136,11 @@ actor MediaCleanupCoordinator {
 
         var checkpointReferences: [String: Set<NSManagedObjectID>] = [:]
         var hasUnreadableCheckpointContent = false
-        for checkpoint in snapshot.checkpoints {
+        let needsCheckpointReferences = watchedMediaIDs.map { !$0.isSubset(of: currentReferences) } ?? true
+        for checkpoint in snapshot.checkpoints where needsCheckpointReferences {
             do {
                 let data = try await loadContent(checkpoint.content)
-                let mediaIDs = try referencedMediaIDs(in: data)
+                let mediaIDs = try referencedMediaIDs(in: data, among: watchedMediaIDs)
                 for mediaID in mediaIDs {
                     checkpointReferences[mediaID, default: []].insert(checkpoint.objectID)
                 }
@@ -163,7 +178,7 @@ actor MediaCleanupCoordinator {
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         let trashedMediaObjectIDs = Set(trashedFiles.flatMap(\.mediaObjectIDs))
 
-        for media in snapshot.medias {
+        for media in consideredMedias {
             guard !trashedMediaObjectIDs.contains(media.objectID) else {
                 continue
             }
@@ -262,7 +277,7 @@ actor MediaCleanupCoordinator {
         guard !objectURIs.isEmpty else { return 0 }
 
         let targetURIs = Set(objectURIs)
-        let candidates = try await scan().orphaned.filter {
+        let candidates = try await analyze(targetMediaObjectURIs: targetURIs).orphaned.filter {
             targetURIs.contains($0.id.uriRepresentation())
         }
         for candidate in candidates {
@@ -390,7 +405,16 @@ actor MediaCleanupCoordinator {
         )
     }
 
-    private func referencedMediaIDs(in data: Data) throws -> Set<String> {
+    private func referencedMediaIDs(in data: Data, among watchedMediaIDs: Set<String>?) throws -> Set<String> {
+        if let watchedMediaIDs {
+            guard !watchedMediaIDs.isEmpty else { return [] }
+            // IDs made only of characters JSON never escapes can be ruled out
+            // with a byte search, which is far cheaper than parsing.
+            if watchedMediaIDs.allSatisfy(Self.isPlainJSONToken),
+               !watchedMediaIDs.contains(where: { data.range(of: Data($0.utf8)) != nil }) {
+                return []
+            }
+        }
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw CocoaError(.fileReadCorruptFile)
         }
@@ -405,6 +429,13 @@ actor MediaCleanupCoordinator {
                 return
             }
             result.insert(fileID)
+        }
+    }
+
+    private static func isPlainJSONToken(_ value: String) -> Bool {
+        value.unicodeScalars.allSatisfy {
+            ("a"..."z").contains($0) || ("A"..."Z").contains($0) || ("0"..."9").contains($0)
+                || $0 == "-" || $0 == "_" || $0 == "."
         }
     }
 }

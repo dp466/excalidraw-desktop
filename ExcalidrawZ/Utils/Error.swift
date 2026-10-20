@@ -70,11 +70,14 @@ enum AppError: LocalizedError, Equatable {
 
 enum StateError: LocalizedError, Equatable {
     case currentGroupNil
-    
+    case editorNotShowingFile
+
     var errorDescription: String? {
         switch self {
             case .currentGroupNil:
                 return "Current group is nil."
+            case .editorNotShowingFile:
+                return "The new drawing did not open in time, so the image was not inserted."
         }
     }
 }

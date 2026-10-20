@@ -134,7 +134,10 @@ struct LocalFolderMenuProvider: View {
             }
         }
         
-        if case .localFolder(let localFoder) = fileState.currentActiveGroup, localFoder == folder {
+        // The batch delete also removes every subfolder, so leave a subfolder
+        // view too rather than keep showing a deleted object.
+        if case .localFolder(let activeFolder) = fileState.currentActiveGroup,
+           sequence(first: activeFolder, next: { $0.parent }).contains(folder) {
             fileState.setActiveFile(nil)
             fileState.currentActiveGroup = nil
         }

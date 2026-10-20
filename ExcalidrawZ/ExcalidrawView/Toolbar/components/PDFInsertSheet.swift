@@ -63,6 +63,15 @@ struct PDFInsertSheet: View {
     
     @State private var isLoading = false
     @State private var errorMessage: String?
+
+    /// Same bounds as the stepper: a typed 10000 built that many grid columns.
+    private static let itemsPerLineFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.allowsFloats = false
+        formatter.minimum = 1
+        formatter.maximum = 10
+        return formatter
+    }()
     
     var body: some View {
         ZStack {
@@ -212,7 +221,7 @@ struct PDFInsertSheet: View {
                             Text(localizable: direction == .vertical ? .insertPDFSheetItemsPerRow : .insertPDFSheetItemsPerColumn)
                             Spacer(minLength: 0)
                             HStack {
-                                TextField("", value: $itemsPerLine, formatter: NumberFormatter())
+                                TextField("", value: $itemsPerLine, formatter: Self.itemsPerLineFormatter)
                                     .textFieldStyle(.roundedBorder)
                                     .frame(width: 48)
                                 Stepper("", value: $itemsPerLine, in: 1...10)

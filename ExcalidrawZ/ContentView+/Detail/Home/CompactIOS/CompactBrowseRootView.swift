@@ -550,7 +550,9 @@ struct CompactContentMoreMenu<HomeGroup: ExcalidrawGroup>: View {
         case importFiles
     }
     
-    var group: HomeGroup
+    /// nil for menus that are not inside a group (Recently). A context-less
+    /// `Group()` stood in before, and its objectID reached fetch requests.
+    var group: HomeGroup?
     var capability: Set<Capability>
     
     init(group: HomeGroup, capability: Capability...) {
@@ -568,7 +570,7 @@ struct CompactContentMoreMenu<HomeGroup: ExcalidrawGroup>: View {
     }
     
     init() where HomeGroup == Group {
-        self.group = .init()
+        self.group = nil
         self.capability = Set(
             [
                
@@ -590,7 +592,7 @@ struct CompactContentMoreMenu<HomeGroup: ExcalidrawGroup>: View {
             }
             .modernButtonStyle(style: .glassProminent)
         } else {
-            let groupType: NewGroupButton.GroupType = group is Group ? .group : .localFolder
+            let groupType: NewGroupButton.GroupType = group is LocalFolder ? .localFolder : .group
             Menu {
                 if !capability.intersection([.createGroup, .importFiles, .select]).isEmpty {
                     Section {
@@ -655,7 +657,7 @@ struct CompactContentMoreMenu<HomeGroup: ExcalidrawGroup>: View {
                     } set: {
                         isCreateGroupDialogPresented = $0
                     },
-                    parentGroupID: group.objectID,
+                    parentGroupID: group?.objectID,
                 )
             )
             .modifier(
@@ -665,7 +667,7 @@ struct CompactContentMoreMenu<HomeGroup: ExcalidrawGroup>: View {
                     } set: {
                         isCreateGroupDialogPresented = $0
                     },
-                    parentFolderID: group.objectID
+                    parentFolderID: group?.objectID
                 )
             )
         }

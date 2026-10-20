@@ -68,8 +68,11 @@ struct LockedContentAutoRelockModifier: ViewModifier {
     private func installActivityMonitorIfNeeded() {
 #if os(macOS)
         guard eventMonitor == nil else { return }
+        let lockedContentState = lockedContentState
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: activityEventMask) { event in
-            Task { @MainActor in
+            // Local monitors run on the main thread. Calling directly avoids
+            // creating a task for every mouse move and key press.
+            MainActor.assumeIsolated {
                 lockedContentState.noteUserActivity()
             }
             return event

@@ -76,14 +76,14 @@ struct RestoreFileHistoryTool: Tool {
         //    file B — would be a silent corruption).
         let resolution: Resolution = try await resolveCtx.perform {
             let fileFetch = NSFetchRequest<File>(entityName: "File")
-            fileFetch.predicate = NSPredicate(format: "id == %@", params.fileID as CVarArg)
+            fileFetch.predicate = NSPredicate(format: "id == %@", params.fileUUID as CVarArg)
             fileFetch.fetchLimit = 1
             guard let file = try resolveCtx.fetch(fileFetch).first else {
                 throw ToolError.executionFailed("File not found: \(params.fileID)")
             }
 
             let cpFetch = NSFetchRequest<FileCheckpoint>(entityName: "FileCheckpoint")
-            cpFetch.predicate = NSPredicate(format: "id == %@", params.checkpointID as CVarArg)
+            cpFetch.predicate = NSPredicate(format: "id == %@", params.checkpointUUID as CVarArg)
             cpFetch.fetchLimit = 1
             guard let checkpoint = try resolveCtx.fetch(cpFetch).first else {
                 throw ToolError.executionFailed("Checkpoint not found: \(params.checkpointID)")
@@ -189,6 +189,10 @@ struct RestoreFileHistoryTool: Tool {
     private struct Params {
         var fileID: String
         var checkpointID: String
+        // File.id and FileCheckpoint.id are UUID attributes: a String
+        // argument never matched them in the fetch predicates.
+        var fileUUID: UUID
+        var checkpointUUID: UUID
     }
 
     private func parseInput(_ input: String) throws -> Params {
@@ -202,7 +206,18 @@ struct RestoreFileHistoryTool: Tool {
         guard let checkpointID = json["checkpoint_id"] as? String, !checkpointID.isEmpty else {
             throw ToolError.invalidInput("Missing required parameter: checkpoint_id")
         }
-        return Params(fileID: fileID, checkpointID: checkpointID)
+        guard let fileUUID = UUID(uuidString: fileID) else {
+            throw ToolError.invalidInput("file_id must be a UUID.")
+        }
+        guard let checkpointUUID = UUID(uuidString: checkpointID) else {
+            throw ToolError.invalidInput("checkpoint_id must be a UUID.")
+        }
+        return Params(
+            fileID: fileID,
+            checkpointID: checkpointID,
+            fileUUID: fileUUID,
+            checkpointUUID: checkpointUUID
+        )
     }
 
     private struct Resolution {

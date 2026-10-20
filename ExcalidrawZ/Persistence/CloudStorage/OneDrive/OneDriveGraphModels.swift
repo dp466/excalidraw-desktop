@@ -89,15 +89,7 @@ extension JSONDecoder {
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
             let value = try container.decode(String.self)
-
-            let fractionalFormatter = ISO8601DateFormatter()
-            fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = fractionalFormatter.date(from: value) {
-                return date
-            }
-
-            let formatter = ISO8601DateFormatter()
-            guard let date = formatter.date(from: value) else {
+            guard let date = CloudStorageISO8601.date(from: value) else {
                 throw DecodingError.dataCorruptedError(
                     in: container,
                     debugDescription: "Invalid Microsoft Graph date: \(value)"

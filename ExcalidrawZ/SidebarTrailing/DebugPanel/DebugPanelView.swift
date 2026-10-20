@@ -675,12 +675,12 @@ struct DebugPanelView: View {
                 )
                 let text = (result as? String) ?? String(describing: result)
                 await MainActor.run {
-                    lastResult = "[Inspect Follow]\\n\(text)"
+                    lastResult = "[Inspect Follow]\n\(text)"
                     isRunning = false
                 }
             } catch {
                 await MainActor.run {
-                    lastError = "[Inspect Follow]\\n\(error.localizedDescription)"
+                    lastError = "[Inspect Follow]\n\(error.localizedDescription)"
                     isRunning = false
                 }
             }

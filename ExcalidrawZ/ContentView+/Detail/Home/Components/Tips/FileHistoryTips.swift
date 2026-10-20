@@ -35,7 +35,7 @@ struct FileHistoryTipsDetail: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             
             AutoContainVideoPlayer(
-                url: URL(string: "https://pub-2983ae3d3c894bd08530707492e919db.r2.dev/ExcalidrawZ File History guide.mov")!
+                url: URL(string: "https://pub-2983ae3d3c894bd08530707492e919db.r2.dev/ExcalidrawZ%20File%20History%20guide.mov")!
             )
             .clipShape(RoundedRectangle(cornerRadius: 30))
             

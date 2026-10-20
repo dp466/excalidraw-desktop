@@ -76,7 +76,7 @@ struct ListLibraryItemsTool: Tool {
         let payload: [String: Any] = try await ctx.perform {
             // Resolve library by id (UUID string).
             let libFetch = NSFetchRequest<Library>(entityName: "Library")
-            libFetch.predicate = NSPredicate(format: "id == %@", params.libraryID as CVarArg)
+            libFetch.predicate = NSPredicate(format: "id == %@", (UUID(uuidString: params.libraryID) as CVarArg?) ?? params.libraryID as CVarArg)
             libFetch.fetchLimit = 1
             guard let library = try ctx.fetch(libFetch).first else {
                 throw ToolError.executionFailed("Library not found: \(params.libraryID)")
