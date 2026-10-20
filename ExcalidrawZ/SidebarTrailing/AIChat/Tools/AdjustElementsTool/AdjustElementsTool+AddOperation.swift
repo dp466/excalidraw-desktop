@@ -465,28 +465,50 @@ private enum ImageURLResourceLoader {
         let url = try await Task.detached(priority: .userInitiated) {
             try validatedURL(rawURL)
         }.value
-        let request = makeRequest(url: url, referer: sameOriginReferer(for: url))
+        let referer = sameOriginReferer(for: url)
+        let request = makeRequest(url: url, referer: referer)
 
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 30
         configuration.waitsForConnectivity = false
         configuration.httpMaximumConnectionsPerHost = 2
-        let redirectDelegate = RedirectValidator(referer: sameOriginReferer(for: url))
-        let session = URLSession(
-            configuration: configuration,
-            delegate: redirectDelegate,
-            delegateQueue: nil
-        )
-        defer { session.finishTasksAndInvalidate() }
 
-        let (bytes, response): (URLSession.AsyncBytes, URLResponse)
+        let result: PublicNetworkFetchResult
         do {
-            (bytes, response) = try await session.bytes(for: request)
+            result = try await PublicNetworkFetcher.fetch(
+                request,
+                configuration: configuration,
+                maxBytes: maxBytes,
+                truncatesOverflow: false,
+                redirect: { redirected in
+                    guard let target = redirected.url else {
+                        throw AdjustElementsMiddleware.AdjustmentError(
+                            message: "Image URL redirect target is invalid. Use a direct public HTTPS image URL."
+                        )
+                    }
+                    var allowed = makeRequest(url: try validatedURL(target.absoluteString), referer: referer)
+                    allowed.httpMethod = redirected.httpMethod
+                    return allowed
+                }
+            )
+        } catch let error as AdjustElementsMiddleware.AdjustmentError {
+            throw error
+        } catch PublicNetworkFetchError.tooLarge {
+            throw AdjustElementsMiddleware.AdjustmentError(
+                message: """
+                Image URL is too large. Maximum is \(maxBytes) bytes. Use a smaller image \
+                or attach a compressed version.
+                """
+            )
+        } catch let error as PublicNetworkFetchError {
+            throw AdjustElementsMiddleware.AdjustmentError(
+                message: """
+                \(error.localizedDescription) Use a public HTTPS image URL, or attach the image \
+                and reference input_image_1.
+                """
+            )
         } catch {
-            if let redirectError = redirectDelegate.redirectError {
-                throw redirectError
-            }
             throw AdjustElementsMiddleware.AdjustmentError(
                 message: """
                 Failed to fetch image URL "\(rawURL)": \(error.localizedDescription). Use a reachable \
@@ -495,14 +517,7 @@ private enum ImageURLResourceLoader {
             )
         }
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AdjustElementsMiddleware.AdjustmentError(
-                message: "Image URL did not return an HTTP response. Use an HTTPS image URL."
-            )
-        }
-        if let redirectError = redirectDelegate.redirectError {
-            throw redirectError
-        }
+        let httpResponse = result.response
         guard (200..<300).contains(httpResponse.statusCode) else {
             throw AdjustElementsMiddleware.AdjustmentError(
                 message: """
@@ -511,9 +526,6 @@ private enum ImageURLResourceLoader {
                 and reference input_image_1.
                 """
             )
-        }
-        if let finalURL = httpResponse.url {
-            _ = try validatedURL(finalURL.absoluteString)
         }
 
         let mimeType = (httpResponse.mimeType ?? "application/octet-stream").lowercased()
@@ -525,43 +537,8 @@ private enum ImageURLResourceLoader {
                 """
             )
         }
-        if httpResponse.expectedContentLength > maxBytes {
-            throw AdjustElementsMiddleware.AdjustmentError(
-                message: """
-                Image URL is too large (\(httpResponse.expectedContentLength) bytes). Maximum is \
-                \(maxBytes) bytes. Use a smaller image or attach a compressed version.
-                """
-            )
-        }
 
-        var data = Data()
-        data.reserveCapacity(
-            httpResponse.expectedContentLength > 0
-            ? min(Int(httpResponse.expectedContentLength), maxBytes)
-            : min(1_048_576, maxBytes)
-        )
-        do {
-            for try await byte in bytes {
-                if data.count >= maxBytes {
-                    throw AdjustElementsMiddleware.AdjustmentError(
-                        message: """
-                        Image URL is too large. Maximum is \(maxBytes) bytes. Use a smaller image \
-                        or attach a compressed version.
-                        """
-                    )
-                }
-                data.append(byte)
-            }
-        } catch let error as AdjustElementsMiddleware.AdjustmentError {
-            throw error
-        } catch {
-            throw AdjustElementsMiddleware.AdjustmentError(
-                message: """
-                Failed while downloading image URL "\(rawURL)": \(error.localizedDescription). \
-                Use a reachable HTTPS image URL, or attach the image and reference input_image_1.
-                """
-            )
-        }
+        let data = result.data
         guard !data.isEmpty else {
             throw AdjustElementsMiddleware.AdjustmentError(
                 message: "Image URL returned an empty response. Use a direct HTTPS image URL."
@@ -629,41 +606,6 @@ private enum ImageURLResourceLoader {
             )
         }
         return url
-    }
-
-    private final class RedirectValidator: NSObject, URLSessionTaskDelegate {
-        let referer: String?
-        var redirectError: Error?
-
-        init(referer: String?) {
-            self.referer = referer
-        }
-
-        func urlSession(
-            _ session: URLSession,
-            task: URLSessionTask,
-            willPerformHTTPRedirection response: HTTPURLResponse,
-            newRequest request: URLRequest,
-            completionHandler: @escaping (URLRequest?) -> Void
-        ) {
-            guard let url = request.url else {
-                redirectError = AdjustElementsMiddleware.AdjustmentError(
-                    message: "Image URL redirect target is invalid. Use a direct public HTTPS image URL."
-                )
-                completionHandler(nil)
-                return
-            }
-
-            do {
-                _ = try validatedURL(url.absoluteString)
-                var allowedRequest = makeRequest(url: url, referer: referer)
-                allowedRequest.httpMethod = request.httpMethod
-                completionHandler(allowedRequest)
-            } catch {
-                redirectError = error
-                completionHandler(nil)
-            }
-        }
     }
 
 }
@@ -834,16 +776,122 @@ enum PublicNetworkHostPolicy {
     }
 }
 
-/// Session delegate that refuses any redirect to a destination failing
-/// `PublicNetworkHostPolicy.isPublicDestination`, before it is followed.
-/// A refused redirect leaves the 3xx as the final response.
-final class PublicNetworkRedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
-    private let lock = NSLock()
-    private var didBlock = false
+enum PublicNetworkFetchError: LocalizedError, Equatable {
+    case redirectRefused
+    case nonPublicAddress
+    case unverifiedAddress
+    case tooLarge(limit: Int)
 
-    var blockedRedirect: Bool {
-        lock.lock(); defer { lock.unlock() }
-        return didBlock
+    var errorDescription: String? {
+        switch self {
+            case .redirectRefused:
+                return "The URL redirected to a local or private address."
+            case .nonPublicAddress:
+                return "The URL connected to a local or private address."
+            case .unverifiedAddress:
+                return "The address the URL connected to could not be verified."
+            case .tooLarge(let limit):
+                return "The response is larger than \(limit) bytes."
+        }
+    }
+}
+
+struct PublicNetworkFetchResult {
+    let data: Data
+    let response: HTTPURLResponse
+    let isTruncated: Bool
+}
+
+/// Fetches content that is handed to the model or imported, and returns it
+/// only if every connection reached a public address. Callers check the host
+/// name first; each redirect is checked before it is followed; and the
+/// address actually connected to (URLSessionTaskMetrics) is checked before
+/// anything is returned, which covers DNS rebinding between the check and
+/// the connection. A rebound request may still be sent, but its response is
+/// dropped. Connections through a configured proxy cannot be verified this
+/// way and are trusted to the proxy.
+final class PublicNetworkFetcher: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    typealias RedirectHandler = @Sendable (URLRequest) throws -> URLRequest
+
+    @Sendable
+    static func defaultRedirect(_ request: URLRequest) throws -> URLRequest {
+        guard let url = request.url,
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = url.host,
+              PublicNetworkHostPolicy.isPublicDestination(host) else {
+            throw PublicNetworkFetchError.redirectRefused
+        }
+        return request
+    }
+
+    static func fetch(
+        _ request: URLRequest,
+        configuration: URLSessionConfiguration = .ephemeral,
+        maxBytes: Int,
+        truncatesOverflow: Bool,
+        redirect: @escaping RedirectHandler = PublicNetworkFetcher.defaultRedirect
+    ) async throws -> PublicNetworkFetchResult {
+        let fetcher = PublicNetworkFetcher(
+            maxBytes: maxBytes,
+            truncatesOverflow: truncatesOverflow,
+            redirect: redirect
+        )
+        let session = URLSession(configuration: configuration, delegate: fetcher, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                fetcher.start(request, in: session, continuation: continuation)
+            }
+        } onCancel: {
+            fetcher.cancel()
+        }
+    }
+
+    private struct Transaction {
+        let address: String?
+        let isProxied: Bool
+    }
+
+    private let maxBytes: Int
+    private let truncatesOverflow: Bool
+    private let redirect: RedirectHandler
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<PublicNetworkFetchResult, Error>?
+    private var task: URLSessionDataTask?
+    private var data = Data()
+    private var response: HTTPURLResponse?
+    private var failure: Error?
+    private var isTruncated = false
+    private var stoppedEarly = false
+    private var transactions: [Transaction]?
+    private var completion: Error??
+    private var metricsTimedOut = false
+
+    private init(maxBytes: Int, truncatesOverflow: Bool, redirect: @escaping RedirectHandler) {
+        self.maxBytes = maxBytes
+        self.truncatesOverflow = truncatesOverflow
+        self.redirect = redirect
+    }
+
+    private func start(
+        _ request: URLRequest,
+        in session: URLSession,
+        continuation: CheckedContinuation<PublicNetworkFetchResult, Error>
+    ) {
+        let task = session.dataTask(with: request)
+        lock.lock()
+        self.continuation = continuation
+        self.task = task
+        lock.unlock()
+        task.resume()
+    }
+
+    private func cancel() {
+        lock.lock()
+        let task = self.task
+        lock.unlock()
+        task?.cancel()
     }
 
     func urlSession(
@@ -853,15 +901,114 @@ final class PublicNetworkRedirectGuard: NSObject, URLSessionTaskDelegate, @unche
         newRequest request: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
-        guard let url = request.url,
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
-              let host = url.host,
-              PublicNetworkHostPolicy.isPublicDestination(host) else {
-            lock.lock(); didBlock = true; lock.unlock()
+        do {
+            completionHandler(try redirect(request))
+        } catch {
+            lock.lock()
+            failure = error
+            lock.unlock()
             completionHandler(nil)
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        let http = response as? HTTPURLResponse
+        lock.lock()
+        self.response = http
+        let isTooLarge = !truncatesOverflow && (http?.expectedContentLength ?? 0) > Int64(maxBytes)
+        if isTooLarge {
+            failure = PublicNetworkFetchError.tooLarge(limit: maxBytes)
+            stoppedEarly = true
+        }
+        lock.unlock()
+        completionHandler(isTooLarge ? .cancel : .allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive chunk: Data) {
+        lock.lock()
+        var stop = false
+        if data.count + chunk.count > maxBytes {
+            if truncatesOverflow {
+                data.append(chunk.prefix(maxBytes - data.count))
+                isTruncated = true
+            } else {
+                failure = PublicNetworkFetchError.tooLarge(limit: maxBytes)
+            }
+            stoppedEarly = true
+            stop = true
+        } else {
+            data.append(chunk)
+        }
+        lock.unlock()
+        if stop { dataTask.cancel() }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didFinishCollecting metrics: URLSessionTaskMetrics
+    ) {
+        let loads = metrics.transactionMetrics
+            .filter { $0.resourceFetchType == .networkLoad }
+            .map { Transaction(address: $0.remoteAddress, isProxied: $0.isProxyConnection) }
+        lock.lock()
+        transactions = loads
+        lock.unlock()
+        finishIfReady()
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        lock.lock()
+        completion = .some(error)
+        let needsMetricsFallback = transactions == nil
+        lock.unlock()
+        if needsMetricsFallback {
+            // Metrics normally arrive first; never wait on them forever.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { [self] in
+                lock.lock()
+                metricsTimedOut = true
+                lock.unlock()
+                finishIfReady()
+            }
+        }
+        finishIfReady()
+    }
+
+    private func finishIfReady() {
+        lock.lock()
+        guard let completion,
+              transactions != nil || metricsTimedOut,
+              let continuation else {
+            lock.unlock()
             return
         }
-        completionHandler(request)
+        self.continuation = nil
+        let outcome = makeOutcome(completionError: completion)
+        lock.unlock()
+        continuation.resume(with: outcome)
+    }
+
+    /// Called with `lock` held.
+    private func makeOutcome(completionError: Error?) -> Result<PublicNetworkFetchResult, Error> {
+        if let failure { return .failure(failure) }
+        if let completionError, !stoppedEarly { return .failure(completionError) }
+        guard let transactions, !transactions.isEmpty else {
+            return .failure(PublicNetworkFetchError.unverifiedAddress)
+        }
+        for transaction in transactions where !transaction.isProxied {
+            guard let address = transaction.address else {
+                return .failure(PublicNetworkFetchError.unverifiedAddress)
+            }
+            if PublicNetworkHostPolicy.isBlockedHost(address) {
+                return .failure(PublicNetworkFetchError.nonPublicAddress)
+            }
+        }
+        guard let response else { return .failure(Foundation.URLError(.badServerResponse)) }
+        return .success(PublicNetworkFetchResult(data: data, response: response, isTruncated: isTruncated))
     }
 }

@@ -4,6 +4,10 @@ This changelog covers the ExcalidrawDesktop fork. Historical ExcalidrawZ release
 
 ## Unreleased
 
+### Local build 145
+
+- AI web_fetch, AI image URLs and the library browser now also check the address each connection actually reached, and return nothing if it is local or private. This closes the DNS-rebinding gap left in build 144, where a host could resolve to a public address during the check and a private one for the connection.
+
 ### Local build 144
 
 - AI web_fetch, AI image URLs and the in-app library browser now resolve each host before connecting and refuse any that points at a loopback, private or link-local address, including shorthand forms such as `127.1` or `2130706433`. Redirects are checked before they are followed, not after.

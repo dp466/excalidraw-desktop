@@ -56,36 +56,23 @@ struct WebFetchTool: Tool {
         request.timeoutInterval = 10.0
 
         do {
-            // Every redirect is validated before it is followed.
-            let redirectGuard = PublicNetworkRedirectGuard()
-            let session = URLSession(
-                configuration: .ephemeral,
-                delegate: redirectGuard,
-                delegateQueue: nil
-            )
-            defer { session.finishTasksAndInvalidate() }
-            let (bytes, response) = try await session.bytes(for: request)
-            if redirectGuard.blockedRedirect {
-                throw ToolError.executionFailed("Failed to fetch URL: redirected to a non-public host")
+            // Redirects and the address actually connected to are checked
+            // before any content comes back. Only 2,000 characters are
+            // returned, so stop reading after 2 MB.
+            let result: PublicNetworkFetchResult
+            do {
+                result = try await PublicNetworkFetcher.fetch(
+                    request,
+                    maxBytes: 2 * 1024 * 1024,
+                    truncatesOverflow: true
+                )
+            } catch let error as PublicNetworkFetchError {
+                throw ToolError.executionFailed("Failed to fetch URL: \(error.localizedDescription)")
             }
-
-            guard let httpResponse = response as? HTTPURLResponse,
-                  (200...299).contains(httpResponse.statusCode) else {
+            guard (200...299).contains(result.response.statusCode) else {
                 throw ToolError.executionFailed("Failed to fetch URL: Invalid response")
             }
-            if let finalHost = httpResponse.url?.host,
-               PublicNetworkHostPolicy.isBlockedHost(finalHost) {
-                throw ToolError.executionFailed("Failed to fetch URL: redirected to a non-public host")
-            }
-
-            // Only 2,000 characters are returned, so stop reading large
-            // bodies instead of buffering them whole in memory.
-            let maxBytes = 2 * 1024 * 1024
-            var responseData = Data()
-            for try await byte in bytes {
-                responseData.append(byte)
-                if responseData.count >= maxBytes { break }
-            }
+            let responseData = result.data
 
             guard let content = String(data: responseData, encoding: .utf8)
                     ?? String(decoding: responseData, as: UTF8.self) as String? else {

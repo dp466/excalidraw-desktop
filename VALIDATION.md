@@ -1,5 +1,20 @@
 # Fork validation
 
+## Build 145: connected-address check (DNS rebinding) (2026-10-20)
+
+- Second post-commit security review flagged the residual rebinding gap
+  noted for build 144. New `PublicNetworkFetcher` (used by web_fetch, AI
+  image URLs, library browser) validates redirects before following and,
+  before returning content, checks every network transaction's
+  `remoteAddress` from `URLSessionTaskMetrics`; missing metrics or address
+  fails closed; proxied connections are trusted to the proxy. A rebound
+  request may still be sent; its response is dropped.
+- `PublicNetworkHostPolicyTests` adds: a real NWListener server on
+  127.0.0.1 whose response is refused (`nonPublicAddress`), and a live HTTPS
+  fetch of example.com that succeeds (skips when offline; ran online here).
+- Full `script/test_local.sh` under `caffeinate -du`: 42 plugin, 62 editor,
+  **130 XCTest** and **26 Swift Testing** cases passed.
+
 ## Build 144: SSRF hardening after automated security review (2026-10-20)
 
 - The post-commit security review of build 143 found two gaps in the new

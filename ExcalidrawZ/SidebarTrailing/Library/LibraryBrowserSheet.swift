@@ -99,19 +99,15 @@ struct LibraryBrowserSheet: View {
                       await PublicNetworkHostPolicy.isPublicDestinationAsync(host) else {
                     throw Foundation.URLError(.badURL)
                 }
-                let redirectGuard = PublicNetworkRedirectGuard()
-                let session = URLSession(
-                    configuration: .ephemeral,
-                    delegate: redirectGuard,
-                    delegateQueue: nil
+                let result = try await PublicNetworkFetcher.fetch(
+                    URLRequest(url: url),
+                    maxBytes: 64 * 1024 * 1024,
+                    truncatesOverflow: false
                 )
-                defer { session.finishTasksAndInvalidate() }
-                let (data, response) = try await session.data(from: url)
-                guard !redirectGuard.blockedRedirect,
-                      let httpResponse = response as? HTTPURLResponse,
-                      (200...299).contains(httpResponse.statusCode) else {
+                guard (200...299).contains(result.response.statusCode) else {
                     throw Foundation.URLError(.badServerResponse)
                 }
+                let data = result.data
                 var library = try JSONDecoder().decode(ExcalidrawLibrary.self, from: data)
                 if library.name == nil {
                     library.name = url.deletingPathExtension().lastPathComponent
